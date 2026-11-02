@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Checkpoint helps you organize, play, and finish your retro game library.">
+  <title>Checkpoint — Your Retro Game Library</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <button class="brand" data-route="dashboard" aria-label="Checkpoint home">
+        <span class="brand-mark" aria-hidden="true">✓</span>
+        <span><strong>CHECKPOINT</strong><small>Retro game companion</small></span>
+      </button>
+      <nav aria-label="Main navigation">
+        <button class="nav-button active" data-route="dashboard">Dashboard</button>
+        <button class="nav-button" data-route="library">My Library</button>
+        <button class="nav-button" data-route="recommendations">Series Quest</button>
+      </nav>
+      <div class="top-actions">
+        <button class="button ghost" id="backupButton">Export backup</button>
+        <button class="button primary" id="importButton">Import library</button>
+        <input type="file" id="inventoryInput" accept="application/json,.json" hidden>
+        <input type="file" id="backupInput" accept="application/json,.json" hidden>
+      </div>
+    </header>
+
+    <main>
+      <section class="view active" id="dashboardView" data-view="dashboard">
+        <div class="hero">
+          <div>
+            <p class="eyebrow">YOUR NEXT ADVENTURE</p>
+            <h1>Turn a folder full of games<br>into a journey worth finishing.</h1>
+            <p class="hero-copy">Import the inventory from Checkpoint Scanner. Your ROMs stay on your SD card; only filenames and your personal progress are saved here.</p>
+            <div class="hero-actions">
+              <button class="button primary large" id="heroImportButton">Choose checkpoint-library.json</button>
+              <button class="button ghost large" id="demoButton">Explore with sample games</button>
+            </div>
+          </div>
+          <div class="hero-art" aria-hidden="true">
+            <div class="orb orb-one"></div><div class="orb orb-two"></div>
+            <div class="console-card"><span class="dpad">✦</span><div class="screen"><b>READY?</b><i></i><i></i><i></i></div><span class="buttons">● ●</span></div>
+          </div>
+        </div>
+
+        <div id="dashboardContent" class="dashboard-content hidden">
+          <div class="section-heading"><div><p class="eyebrow">LIBRARY OVERVIEW</p><h2>Welcome back</h2></div><button class="text-button" data-route="library">View all games →</button></div>
+          <div class="stat-grid" id="stats"></div>
+          <div class="dashboard-grid">
+            <section class="panel"><div class="panel-heading"><h3>Continue playing</h3><span class="pill">In progress</span></div><div id="continuePlaying"></div></section>
+            <section class="panel accent-panel"><div class="panel-heading"><h3>Series Quest</h3><span class="spark">✦</span></div><div id="recommendationPreview"></div><button class="button ghost full" data-route="recommendations">See all series suggestions</button></section>
+          </div>
+          <section class="panel"><div class="panel-heading"><h3>Recently added</h3><button class="text-button" data-route="library">Open library</button></div><div class="game-strip" id="recentGames"></div></section>
+        </div>
+      </section>
+
+      <section class="view" id="libraryView" data-view="library">
+        <div class="page-heading"><div><p class="eyebrow">YOUR COLLECTION</p><h1>My Library</h1><p id="librarySubtitle">Import your scanner inventory to begin.</p></div><button class="button primary" id="libraryImportButton">Import or rescan</button></div>
+        <div class="toolbar">
+          <label class="search"><span>⌕</span><input id="searchInput" type="search" placeholder="Search games…"></label>
+          <select id="platformFilter" aria-label="Filter by platform"><option value="all">All platforms</option></select>
+          <select id="statusFilter" aria-label="Filter by status"><option value="all">All statuses</option><option value="backlog">Backlog</option><option value="playing">Playing</option><option value="beaten">Beaten</option><option value="on-hold">On hold</option></select>
+        </div>
+        <div id="libraryGrid" class="library-grid"></div>
+        <div id="libraryEmpty" class="empty-state"><div class="empty-icon">▣</div><h2>No games imported yet</h2><p>Use the JSON file created by Checkpoint Scanner.</p><button class="button primary" id="emptyImportButton">Choose inventory file</button></div>
+      </section>
+
+      <section class="view" id="recommendationsView" data-view="recommendations">
+        <div class="page-heading"><div><p class="eyebrow">COMPLETE THE JOURNEY</p><h1>Series Quest</h1><p>Suggestions based on gaps in series you already own—not generic advertising.</p></div></div>
+        <div class="series-explainer"><span class="spark">✦</span><div><strong>How this works</strong><p>Checkpoint compares your matched titles with an ordered series catalog. Every suggestion explains the gap, and you can dismiss games you do not want.</p></div></div>
+        <div id="recommendationList" class="recommendation-list"></div>
+        <div id="recommendationEmpty" class="empty-state"><div class="empty-icon">✦</div><h2>No series gaps found yet</h2><p>Import a library with games from a supported series, or add more games to your collection.</p></div>
+      </section>
+    </main>
+  </div>
+
+  <dialog id="gameDialog">
+    <form method="dialog" class="dialog-card">
+      <button class="dialog-close" value="cancel" aria-label="Close">×</button>
+      <p class="eyebrow" id="dialogPlatform"></p><h2 id="dialogTitle"></h2><p class="muted" id="dialogPath"></p>
+      <label>Status<select id="dialogStatus"><option value="backlog">Backlog</option><option value="playing">Playing</option><option value="beaten">Beaten</option><option value="on-hold">On hold</option></select></label>
+      <label>Progress <output id="progressOutput">0%</output><input id="dialogProgress" type="range" min="0" max="100" step="5" value="0"></label>
+      <label>Where did you stop?<textarea id="dialogNotes" rows="5" placeholder="Write a reminder for your future self…"></textarea></label>
+      <div class="dialog-actions"><a class="button ghost" id="guideLink" href="#" target="_blank" rel="noopener">Find a guide ↗</a><button class="button primary" value="default" id="saveGameButton">Save changes</button></div>
+    </form>
+  </dialog>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <script src="app.js"></script>
+</body>
+</html>
