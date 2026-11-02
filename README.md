@@ -40,6 +40,17 @@ python -m http.server 4173
 
 Then open `http://localhost:4173`.
 
+## Guides and walkthroughs
+
+Every game has an **Open walkthrough** button: in the game window, on the dashboard spotlight, and on library cards (hover, or always visible on touch screens). Guides come from [StrategyWiki](https://strategywiki.org), a free walkthrough wiki whose API allows other sites to load its pages, so they open inside Checkpoint instead of a new tab:
+
+- Checkpoint finds the matching guide automatically (using the matched box-art title when available). If unsure, it asks you to pick and remembers your choice.
+- Chapters are listed in the guide's own order, with previous/next buttons and adjustable text size.
+- Your notes for the game sit beside the guide and save automatically.
+- Checkpoint remembers your chapter and scroll position, so **Open walkthrough** picks up where you left off.
+
+GameFAQs, YouTube and web search are still linked as extra sources. Those sites block being shown inside other sites, so they open in a new tab.
+
 ## Series Quest
 
 Series Quest finds the holes in franchises you already play and helps you collect the rest. The catalog (`series-data.js`) covers 110 franchise goals and over 600 games, listed in release order: Nintendo first-party families, Final Fantasy and its Tactics line, Dragon Quest, Mana, Tales, Persona, Kingdom Hearts, Sonic, Mega Man (classic, X, Zero, Battle Network, Legends), Castlevania, Metroid, Zelda (console and handheld), Metal Gear, Resident Evil, Silent Hill, Devil May Cry, Ratchet & Clank, Jak, Sly, Crash, Spyro, Gran Turismo, Ace Combat, arcade fighters (Street Fighter, King of Fighters, Samurai Shodown, Darkstalkers, Marvel vs. Capcom), Metal Slug, Sega classics, and more.

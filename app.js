@@ -129,7 +129,7 @@ function renderDashboard(){
   const has=library.length>0;$("#dashboardContent").classList.toggle('hidden',!has);$('.hero').classList.toggle('hidden',has);
   if(!has){renderHero();return}
   const {game,kind}=spotlightGame(),s=stateFor(game.id),eyebrow={playing:'CONTINUE PLAYING','on-hold':'WAITING FOR YOU',pick:"TODAY'S PICK FROM YOUR BACKLOG",done:'YOUR COLLECTION'}[kind];
-  $("#spotlight").innerHTML=`<div class="spotlight-backdrop" data-backdrop="${escapeHtml(game.id)}"></div><div class="spotlight-inner">${cover(game,'spotlight-cover')}<div class="spotlight-copy"><p class="eyebrow">${eyebrow}</p><h2>${escapeHtml(game.title)}</h2><p class="muted"><span class="sys-dot" style="--family:${familyColor(game.platform)}"></span>${escapeHtml(displayPlatform(game.platform))} · ${STATUS_LABEL[s.status]}</p>${s.notes?`<blockquote class="spotlight-notes">${escapeHtml(s.notes.length>220?s.notes.slice(0,220)+'…':s.notes)}</blockquote>`:kind==='pick'?'<p class="spotlight-hint">Nothing in progress — how about starting this one?</p>':''}<div class="spotlight-progress"><div class="progress-track"><i style="width:${s.percent}%"></i></div><strong>${s.percent}%</strong></div><div class="spotlight-actions"><button class="button primary" data-game="${escapeHtml(game.id)}">${kind==='pick'?'Start playing':'Update progress'}</button><a class="button ghost" href="${guideUrls(game).web}" target="_blank" rel="noopener">Find a guide ↗</a></div></div></div>`;
+  $("#spotlight").innerHTML=`<div class="spotlight-backdrop" data-backdrop="${escapeHtml(game.id)}"></div><div class="spotlight-inner">${cover(game,'spotlight-cover')}<div class="spotlight-copy"><p class="eyebrow">${eyebrow}</p><h2>${escapeHtml(game.title)}</h2><p class="muted"><span class="sys-dot" style="--family:${familyColor(game.platform)}"></span>${escapeHtml(displayPlatform(game.platform))} · ${STATUS_LABEL[s.status]}</p>${s.notes?`<blockquote class="spotlight-notes">${escapeHtml(s.notes.length>220?s.notes.slice(0,220)+'…':s.notes)}</blockquote>`:kind==='pick'?'<p class="spotlight-hint">Nothing in progress — how about starting this one?</p>':''}<div class="spotlight-progress"><div class="progress-track"><i style="width:${s.percent}%"></i></div><strong>${s.percent}%</strong></div><div class="spotlight-actions"><button class="button primary" data-game="${escapeHtml(game.id)}">${kind==='pick'?'Start playing':'Update progress'}</button><button class="button ghost" data-guide="${escapeHtml(game.id)}">📖 ${CheckpointGuide.hasGuide(game.id)?'Resume guide':'Open walkthrough'}</button></div></div></div>`;
   const total=library.length,count=st=>library.filter(g=>stateFor(g.id).status===st).length,playing=count('playing'),beaten=count('beaten'),systems=new Set(library.map(g=>g.platform)).size;
   $("#stats").innerHTML=[[total.toLocaleString(),'Games owned','across '+systems+' systems'],[playing,'Playing now',playing?'keep going':'pick one up'],[beaten,'Games beaten',total?`${(beaten/total*100).toFixed(beaten/total<.1?1:0)}% of library`:''],[recommendations().length,'Series gaps','games to collect']].map(([n,l,e])=>`<div class="stat"><span>${l}</span><strong>${n}</strong><em>${e}</em></div>`).join('');
   const queue=library.filter(g=>g.id!==game.id&&['playing','on-hold'].includes(stateFor(g.id).status));
@@ -160,7 +160,7 @@ function renderLibrary(){
   filtered.sort(sorters[sort]||sorters.title);
   const visible=filtered.slice(0,libraryVisibleCount);
   $("#librarySubtitle").textContent=library.length?`${library.length.toLocaleString()} games across ${new Set(library.map(g=>g.platform)).size} systems${filtered.length!==library.length?` · ${filtered.length.toLocaleString()} shown`:''}`:'Import your scanner inventory to begin.';
-  $("#libraryGrid").innerHTML=visible.map(g=>{const s=stateFor(g.id);return`<article class="game-card" data-game="${escapeHtml(g.id)}" tabindex="0" role="button" aria-label="${escapeHtml(g.title)}">${cover(g)}${s.status!=='backlog'?`<span class="status-badge ${s.status}">${STATUS_LABEL[s.status]}</span>`:''}${s.percent?`<div class="cover-progress"><i style="width:${s.percent}%"></i></div>`:''}<div class="game-info"><h3 title="${escapeHtml(g.title)}">${escapeHtml(g.title)}</h3><p><span class="sys-dot" style="--family:${familyColor(g.platform)}"></span>${escapeHtml(shortPlatform(g.platform))}</p></div></article>`}).join('');
+  $("#libraryGrid").innerHTML=visible.map(g=>{const s=stateFor(g.id);return`<article class="game-card" data-game="${escapeHtml(g.id)}" tabindex="0" role="button" aria-label="${escapeHtml(g.title)}">${cover(g)}${s.status!=='backlog'?`<span class="status-badge ${s.status}">${STATUS_LABEL[s.status]}</span>`:''}${s.percent?`<div class="cover-progress"><i style="width:${s.percent}%"></i></div>`:''}<button class="card-guide" data-guide="${escapeHtml(g.id)}" title="Open walkthrough" aria-label="Open walkthrough for ${escapeHtml(g.title)}">📖</button><div class="game-info"><h3 title="${escapeHtml(g.title)}">${escapeHtml(g.title)}</h3><p><span class="sys-dot" style="--family:${familyColor(g.platform)}"></span>${escapeHtml(shortPlatform(g.platform))}</p></div></article>`}).join('');
   $("#libraryGrid").classList.toggle('hidden',!library.length);
   if(library.length&&!filtered.length)$("#libraryGrid").innerHTML=`<p class="no-results">No games match these filters.</p>`;
   const more=$("#loadMoreButton");more.classList.toggle('hidden',visible.length>=filtered.length);more.textContent=`Show more games (${visible.length.toLocaleString()} of ${filtered.length.toLocaleString()})`;
@@ -263,7 +263,7 @@ function openGame(id){
   $("#dialogPlatform").textContent=displayPlatform(game.platform);$("#dialogTitle").textContent=game.title;$("#dialogPath").textContent=fileOf(game)||'Imported game';
   $$('input[name="dialogStatus"]').forEach(r=>r.checked=r.value===s.status);
   $("#dialogProgress").value=s.percent;$("#progressOutput").value=`${s.percent}%`;$("#dialogNotes").value=s.notes;
-  const g=guideUrls(game);$("#guideLink").href=g.web;$("#gamefaqsLink").href=g.faqs;$("#youtubeLink").href=g.video;
+  const g=guideUrls(game);$("#guideLink").href=g.web;$("#gamefaqsLink").href=g.faqs;$("#youtubeLink").href=g.video;$("#guideResume").textContent=CheckpointGuide.hasGuide(id)?'Pick up where you left off':'Read it right here';
   $("#artPicker").classList.add('hidden');$("#artSearch").value='';
   $("#changeArtButton").classList.toggle('hidden',!CheckpointArt.supports(game.platform));
   renderDialogCover(game);$("#gameDialog").showModal();
@@ -280,6 +280,7 @@ async function renderArtOptions(){
   box.innerHTML=results.length?results.map((ref,i)=>`<button type="button" class="art-option" data-ref="${i}" title="${escapeHtml(ref.name)}"><span class="art-thumb"></span><small>${escapeHtml(ref.name)}</small></button>`).join(''):'<p class="muted small">No matching art found. Try a shorter search, like the main title only.</p>';
   box.querySelectorAll('.art-option').forEach(btn=>{const ref=results[Number(btn.dataset.ref)];showArt(btn.querySelector('.art-thumb'),CheckpointArt.urls(ref));btn.onclick=()=>{CheckpointArt.setOverride(game.id,ref);afterArtChange(game,'Cover updated')}});
 }
+function openGuide(id){const game=byId(id);if(!game)return;CheckpointGuide.open(game,{platformName:displayPlatform(game.platform),getNotes:()=>stateFor(id).notes,setNotes:notes=>{if(notes===stateFor(id).notes)return;progress[id]={...stateFor(id),notes,updatedAt:new Date().toISOString()};write(STORAGE.progress,progress);if(activeGameId===id)$("#dialogNotes").value=notes},onClose:()=>{renderDashboard();if(activeGameId===id)$("#guideResume").textContent='Pick up where you left off'}})}
 function afterArtChange(game,message){loadedArt.delete(`g:${game.id}`);renderDialogCover(game);$("#artPicker").classList.add('hidden');renderAll();toast(message)}
 
 /* ---------------- events ---------------- */
@@ -292,6 +293,7 @@ document.addEventListener('click',e=>{
   const sf=e.target.closest('[data-series-filter]');if(sf){quest.status=sf.dataset.seriesFilter;saveQuest();renderRecommendations();return}
   const qt=e.target.closest('[data-quest-tab]');if(qt){quest.tab=qt.dataset.questTab;quest.limit=40;saveQuest();renderRecommendations();return}
   const qs=e.target.closest('[data-quest-system]');if(qs){quest.system=qs.dataset.questSystem;quest.limit=40;saveQuest();renderRecommendations();return}
+  const guideBtn=e.target.closest('[data-guide]');if(guideBtn){openGuide(guideBtn.dataset.guide);return}
   const game=e.target.closest('[data-game]');if(game&&!e.target.closest('dialog'))openGame(game.dataset.game);
 });
 document.addEventListener('keydown',e=>{if((e.key==='Enter'||e.key===' ')&&e.target.matches?.('[role="button"][data-game],[role="button"][data-open-series]')){e.preventDefault();e.target.click()}});
@@ -312,6 +314,7 @@ $("#closeGoalButton").onclick=()=>{activeSeriesName=null;renderRecommendations()
 $("#dialogProgress").oninput=e=>$("#progressOutput").value=`${e.target.value}%`;
 $$('input[name="dialogStatus"]').forEach(r=>r.onchange=()=>{if(r.value==='beaten'&&r.checked){$("#dialogProgress").value=100;$("#progressOutput").value='100%'}});
 $("#saveGameButton").onclick=()=>{if(!activeGameId)return;const status=$('input[name="dialogStatus"]:checked')?.value||'backlog';saveState(activeGameId,{...stateFor(activeGameId),status,percent:Number($("#dialogProgress").value),notes:$("#dialogNotes").value.trim()});toast('Game progress saved')};
+$("#openGuideButton").onclick=()=>{if(activeGameId)openGuide(activeGameId)};
 $("#changeArtButton").onclick=()=>{const p=$("#artPicker");p.classList.toggle('hidden');if(!p.classList.contains('hidden'))renderArtOptions()};
 let artTimer;$("#artSearch").oninput=()=>{clearTimeout(artTimer);artTimer=setTimeout(renderArtOptions,250)};
 $("#artSearch").onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();renderArtOptions()}};

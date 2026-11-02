@@ -163,20 +163,52 @@
         </fieldset>
         <label class="field">Progress <output id="progressOutput">0%</output><input id="dialogProgress" type="range" min="0" max="100" step="5" value="0"></label>
         <label class="field">Where did you stop?<textarea id="dialogNotes" rows="4" placeholder="Write a reminder for your future self…"></textarea></label>
-        <div class="guide-links">
-          <span class="muted small">Guides</span>
-          <a class="chip-link" id="guideLink" href="#" target="_blank" rel="noopener">Web search ↗</a>
-          <a class="chip-link" id="gamefaqsLink" href="#" target="_blank" rel="noopener">GameFAQs ↗</a>
-          <a class="chip-link" id="youtubeLink" href="#" target="_blank" rel="noopener">Video walkthrough ↗</a>
+        <div class="guide-block">
+          <button type="button" class="button guide-button" id="openGuideButton"><span aria-hidden="true">📖</span> Open walkthrough<small id="guideResume"></small></button>
+          <div class="guide-links">
+            <span class="muted small">Other sources (new tab)</span>
+            <a class="chip-link" id="gamefaqsLink" href="#" target="_blank" rel="noopener">GameFAQs ↗</a>
+            <a class="chip-link" id="youtubeLink" href="#" target="_blank" rel="noopener">YouTube ↗</a>
+            <a class="chip-link" id="guideLink" href="#" target="_blank" rel="noopener">Web ↗</a>
+          </div>
         </div>
         <div class="dialog-actions"><button class="button ghost" value="cancel">Cancel</button><button class="button primary" value="default" id="saveGameButton">Save changes</button></div>
       </div>
     </form>
   </dialog>
 
+  <!-- GUIDE READER -->
+  <dialog id="guideReader" class="reader" aria-label="Guide reader">
+    <div class="reader-shell">
+      <header class="reader-head">
+        <button class="icon-button reader-toc-toggle" id="readerTocToggle" aria-label="Chapters">☰</button>
+        <div class="reader-titles"><p class="eyebrow" id="readerGame"></p><h2 id="readerTitle"></h2></div>
+        <div class="reader-tools">
+          <button class="icon-button" id="readerSmaller" aria-label="Smaller text" title="Smaller text">A−</button>
+          <button class="icon-button" id="readerBigger" aria-label="Larger text" title="Larger text">A+</button>
+          <button class="button ghost small" id="readerNotesToggle" title="Show or hide your notes">Notes</button>
+          <button class="button ghost small" id="readerChange">Change guide</button>
+          <a class="button ghost small reader-source" id="readerSource" href="https://strategywiki.org" target="_blank" rel="noopener">StrategyWiki ↗</a>
+          <button class="icon-button" id="readerClose" aria-label="Close guide">×</button>
+        </div>
+      </header>
+      <div class="reader-body">
+        <nav class="reader-toc" id="readerToc" aria-label="Chapters"></nav>
+        <article class="reader-content" id="readerContent" tabindex="0"></article>
+        <aside class="reader-notes">
+          <h3>Your notes</h3>
+          <textarea id="readerNotesText" placeholder="Where you are, what to do next, codes, item locations…"></textarea>
+          <p class="muted small">Saved automatically with this game.</p>
+          <div class="reader-fallback" id="readerFallback"></div>
+        </aside>
+      </div>
+    </div>
+  </dialog>
+
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
   <script src="art.js"></script>
   <script src="series-data.js"></script>
+  <script src="guide.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
