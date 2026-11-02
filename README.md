@@ -40,6 +40,18 @@ python -m http.server 4173
 
 Then open `http://localhost:4173`.
 
+## Built to help you finish games
+
+The dashboard is designed to get you to the credits, not to start more games:
+
+- **Now Playing** holds one focus game. If none is set, it asks what you're playing, with a search box and suggestions that put unfinished games first.
+- Starting a new game while another is in progress asks first: keep going, put the current game on hold, or play both anyway.
+- **Unfinished business** lists every game you've started but not beaten, closest to the end first.
+- Stats track games beaten (and how many this year), your finish rate, and how many games are in progress. More than three in progress gets a gentle warning.
+- Beating a game shows a celebration with your running total and how long it took, then suggests your next focus: the next game in that series, or something unfinished.
+- **Recommendations** are framed as what to play when you finish. They lead with the next game in a series you've beaten, followed by the top Series Quest gaps.
+- A **trophy shelf** shows every game you've beaten.
+
 ## Guides and walkthroughs
 
 Every game has an **Open walkthrough** button: in the game window, on the dashboard spotlight, and on library cards (hover, or always visible on touch screens). Guides come from [StrategyWiki](https://strategywiki.org), a free walkthrough wiki whose API allows other sites to load its pages, so they open inside Checkpoint instead of a new tab:

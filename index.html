@@ -55,21 +55,25 @@
           <div class="stat-grid" id="stats"></div>
 
           <section class="shelf-section" id="upNextSection">
-            <div class="section-heading"><div><p class="eyebrow">IN YOUR QUEUE</p><h2>Up next</h2></div><button class="text-button" data-route="library" data-status-link="playing">See all in progress →</button></div>
-            <div class="shelf" id="upNext"></div>
+            <div class="section-heading"><div><p class="eyebrow">FINISH WHAT YOU STARTED</p><h2>Unfinished business</h2></div><button class="text-button" data-route="library" data-status-link="on-hold">See on-hold games →</button></div>
+            <div class="finish-list" id="upNext"></div>
           </section>
 
-          <div class="dashboard-grid">
-            <section class="panel">
-              <div class="panel-heading"><h3>Your systems</h3><span class="pill" id="systemCount"></span></div>
-              <div class="platform-chips" id="platformChips"></div>
-            </section>
-            <section class="panel accent-panel">
-              <div class="panel-heading"><h3>Series Quest</h3><span class="spark">✦</span></div>
-              <div id="recommendationPreview"></div>
-              <button class="button ghost full" data-route="recommendations">See all series suggestions</button>
-            </section>
-          </div>
+          <section class="shelf-section" id="forYouSection">
+            <div class="section-heading"><div><p class="eyebrow">PICKED FOR YOU</p><h2 id="forYouHeading">Recommended for you</h2></div><button class="text-button" data-route="recommendations">All Series Quest gaps →</button></div>
+            <div class="for-you" id="forYou"></div>
+          </section>
+
+
+          <section class="shelf-section" id="trophySection">
+            <div class="section-heading"><div><p class="eyebrow">🏆 TROPHY SHELF</p><h2>Games you've beaten</h2></div><span class="pill" id="trophyCount"></span></div>
+            <div class="shelf" id="trophyShelf"></div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-heading"><h3>Your systems</h3><span class="pill" id="systemCount"></span></div>
+            <div class="platform-chips" id="platformChips"></div>
+          </section>
 
           <section class="shelf-section">
             <div class="section-heading"><div><p class="eyebrow">FRESH ON THE CARD</p><h2>Recently added</h2></div><button class="text-button" data-route="library">Open library →</button></div>
@@ -174,6 +178,34 @@
         </div>
         <div class="dialog-actions"><button class="button ghost" value="cancel">Cancel</button><button class="button primary" value="default" id="saveGameButton">Save changes</button></div>
       </div>
+    </form>
+  </dialog>
+
+  <!-- FOCUS CHECK -->
+  <dialog id="focusDialog" class="small-dialog">
+    <div class="dialog-card focus-card">
+      <p class="eyebrow">ONE GAME AT A TIME</p>
+      <h2 id="focusTitle"></h2>
+      <div class="focus-current" id="focusCurrent"></div>
+      <p class="muted">Starting <b id="focusNew"></b> now? Players who focus on one game are much more likely to reach the ending.</p>
+      <div class="focus-actions">
+        <button class="button primary" id="focusKeep">Keep playing my current game</button>
+        <button class="button ghost" id="focusHold"></button>
+        <button class="text-button small" id="focusBoth">Play both anyway</button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- CELEBRATION -->
+  <dialog id="celebrateDialog" class="small-dialog">
+    <form method="dialog" class="dialog-card celebrate-card">
+      <div class="confetti" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+      <div id="celebrateCover"></div>
+      <p class="eyebrow">🏆 GAME BEATEN</p>
+      <h2 id="celebrateTitle"></h2>
+      <p class="muted" id="celebrateText"></p>
+      <div class="celebrate-next" id="celebrateNext"></div>
+      <button class="button ghost" value="close">Close</button>
     </form>
   </dialog>
 

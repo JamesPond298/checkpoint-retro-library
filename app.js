@@ -29,7 +29,15 @@ const FAMILY_COLORS={nintendo:"#ff5d6c",sega:"#4f9dff",sony:"#9d8cff",arcade:"#f
 function familyColor(code){const f=Object.keys(FAMILY).find(k=>FAMILY[k].includes(code));return FAMILY_COLORS[f||'other']}
 const STATUS_LABEL={backlog:'Backlog',playing:'Playing','on-hold':'On hold',beaten:'Beaten'};
 function stateFor(id){return{status:"backlog",percent:0,notes:"",...(progress[id]||{})}}
-function saveState(id,state){progress[id]={...state,updatedAt:new Date().toISOString()};write(STORAGE.progress,progress);renderAll()}
+function saveState(id,state){const prev=stateFor(id),now=new Date().toISOString(),next={...state,updatedAt:now};
+  if(next.status==='beaten'&&prev.status!=='beaten')next.beatenAt=now;
+  if(next.status==='playing'&&!prev.startedAt)next.startedAt=now;
+  progress[id]=next;write(STORAGE.progress,progress);renderAll();
+  if(next.status==='beaten'&&prev.status!=='beaten')celebrate(id);}
+/* "Started" means you've put time in: playing, on hold, or any progress logged. */
+const isStarted=g=>{const s=stateFor(g.id);return s.status==='playing'||s.status==='on-hold'||(s.status==='backlog'&&s.percent>0)};
+function unfinished(){const recent=g=>progress[g.id]?.updatedAt||'';return library.filter(isStarted).sort((a,b)=>stateFor(b.id).percent-stateFor(a.id).percent||recent(b).localeCompare(recent(a)))}
+function finishStats(){const beaten=library.filter(g=>stateFor(g.id).status==='beaten'),year=String(new Date().getFullYear()),started=unfinished().length;return{beaten:beaten.length,thisYear:beaten.filter(g=>(progress[g.id]?.beatenAt||'').startsWith(year)).length,inProgress:started,rate:beaten.length+started?Math.round(beaten.length/(beaten.length+started)*100):0}}
 const byId=id=>library.find(g=>g.id===id);
 function toast(message){const el=$("#toast");el.textContent=message;el.classList.add("show");clearTimeout(toast.timer);toast.timer=setTimeout(()=>el.classList.remove("show"),2600)}
 function fileOf(game){return game.files?.[0]?.relativePath||game.files?.[0]?.filename||''}
@@ -123,27 +131,95 @@ function warmSeriesArt(){if(warming||!library.length)return;warming=true;Checkpo
 /* ---------------- dashboard ---------------- */
 const HERO_ART=[["Nintendo - Super Nintendo Entertainment System","Chrono Trigger (USA)"],["Sony - PlayStation","Final Fantasy VII (USA) (Disc 1)"],["Nintendo - Nintendo 64","Legend of Zelda, The - Ocarina of Time (USA)"],["Sega - Mega Drive - Genesis","Sonic The Hedgehog 2 (World)"],["Nintendo - Game Boy Advance","Pokemon - Emerald Version (USA, Europe)"],["Sony - PlayStation","Castlevania - Symphony of the Night (USA)"],["Nintendo - Super Nintendo Entertainment System","Super Metroid (Japan, USA) (En,Ja)"],["Nintendo - Nintendo Entertainment System","Mega Man 2 (USA)"]];
 function renderHero(){const shelf=$("#heroShelf");if(shelf.childElementCount)return;shelf.innerHTML=HERO_ART.map((_,i)=>`<div class="hero-box" style="left:${4+(i%4)*23}%;top:${6+Math.floor(i/4)*46+(i%2)*6}%;--tilt:${((i%3)-1)*3}deg;animation-delay:${-i*.9}s"></div>`).join('');$$('.hero-box').forEach((el,i)=>{const [system,name]=HERO_ART[i];showArt(el,CheckpointArt.urls({system,name,type:'Named_Boxarts'}))})}
-function spotlightGame(){const recent=g=>progress[g.id]?.updatedAt||'';const by=s=>library.filter(g=>stateFor(g.id).status===s).sort((a,b)=>recent(b).localeCompare(recent(a)));const playing=by('playing');if(playing.length)return{game:playing[0],kind:'playing'};const held=by('on-hold');if(held.length)return{game:held[0],kind:'on-hold'};const backlog=by('backlog');if(!backlog.length)return{game:library[0],kind:'done'};const day=Math.floor(Date.now()/864e5);return{game:backlog[day%backlog.length],kind:'pick'}}
+function nowPlaying(){const recent=g=>progress[g.id]?.updatedAt||'';return library.filter(g=>stateFor(g.id).status==='playing').sort((a,b)=>recent(b).localeCompare(recent(a)))}
+/* Games you already own that are worth starting: the next entry after one you've
+   beaten or are playing, then the first game of series you own but haven't started. */
+function playNextPicks(exclude){
+  const out=new Map();
+  for(const series of SERIES){
+    const st=seriesStatus(series),owned=st.entries.filter(e=>e.game);if(!owned.length)continue;
+    const fresh=owned.filter(e=>stateFor(e.game.id).status==='backlog'&&!exclude.has(e.game.id));if(!fresh.length)continue;
+    const done=owned.filter(e=>['beaten','playing'].includes(stateFor(e.game.id).status));
+    if(done.length){const last=done[done.length-1],next=fresh.find(e=>e.index>last.index);if(next){const beat=stateFor(last.game.id).status==='beaten';out.set(next.game.id,{game:next.game,series,score:beat?100:80,reason:`${beat?'You beat':"You're playing"} ${last.entry.title}. ${next.entry.title===next.game.title?'This':next.entry.title} is next in ${series.name}.`});continue}}
+    if(!done.length&&owned.length>=2){const first=fresh[0];if(!out.has(first.game.id))out.set(first.game.id,{game:first.game,series,score:40+owned.length*3,reason:`You own ${owned.length} ${series.name} games. Start from the beginning.`})}
+  }
+  return[...out.values()].sort((a,b)=>b.score-a.score);
+}
+function trackSuggestions(){const held=unfinished();const picks=playNextPicks(new Set()).map(p=>p.game);const seen=new Set();return[...held,...picks,...library.filter(g=>stateFor(g.id).status==='backlog')].filter(g=>!seen.has(g.id)&&seen.add(g.id)).slice(0,6)}
 function guideUrls(game){const q=`${game.title} ${displayPlatform(game.platform)}`;return{web:`https://www.google.com/search?q=${encodeURIComponent(q+' walkthrough guide')}`,faqs:`https://gamefaqs.gamespot.com/search?game=${encodeURIComponent(game.title)}`,video:`https://www.youtube.com/results?search_query=${encodeURIComponent(q+' walkthrough')}`}}
 function renderDashboard(){
   const has=library.length>0;$("#dashboardContent").classList.toggle('hidden',!has);$('.hero').classList.toggle('hidden',has);
   if(!has){renderHero();return}
-  const {game,kind}=spotlightGame(),s=stateFor(game.id),eyebrow={playing:'CONTINUE PLAYING','on-hold':'WAITING FOR YOU',pick:"TODAY'S PICK FROM YOUR BACKLOG",done:'YOUR COLLECTION'}[kind];
-  $("#spotlight").innerHTML=`<div class="spotlight-backdrop" data-backdrop="${escapeHtml(game.id)}"></div><div class="spotlight-inner">${cover(game,'spotlight-cover')}<div class="spotlight-copy"><p class="eyebrow">${eyebrow}</p><h2>${escapeHtml(game.title)}</h2><p class="muted"><span class="sys-dot" style="--family:${familyColor(game.platform)}"></span>${escapeHtml(displayPlatform(game.platform))} · ${STATUS_LABEL[s.status]}</p>${s.notes?`<blockquote class="spotlight-notes">${escapeHtml(s.notes.length>220?s.notes.slice(0,220)+'…':s.notes)}</blockquote>`:kind==='pick'?'<p class="spotlight-hint">Nothing in progress — how about starting this one?</p>':''}<div class="spotlight-progress"><div class="progress-track"><i style="width:${s.percent}%"></i></div><strong>${s.percent}%</strong></div><div class="spotlight-actions"><button class="button primary" data-game="${escapeHtml(game.id)}">${kind==='pick'?'Start playing':'Update progress'}</button><button class="button ghost" data-guide="${escapeHtml(game.id)}">📖 ${CheckpointGuide.hasGuide(game.id)?'Resume guide':'Open walkthrough'}</button></div></div></div>`;
+  const playingNow=nowPlaying(),game=playingNow[0]||null;
+  $("#spotlight").classList.toggle('tracker',!game);
+  if(game){const s=stateFor(game.id);
+    $("#spotlight").innerHTML=`<div class="spotlight-backdrop" data-backdrop="${escapeHtml(game.id)}"></div><div class="spotlight-inner">${cover(game,'spotlight-cover')}<div class="spotlight-copy"><p class="eyebrow">NOW PLAYING</p><h2>${escapeHtml(game.title)}</h2><p class="muted"><span class="sys-dot" style="--family:${familyColor(game.platform)}"></span>${escapeHtml(displayPlatform(game.platform))}</p>${playingNow.length>1?`<p class="juggle">You're playing ${playingNow.length} games at once. Finishing one at a time makes it far more likely you'll see the credits.</p>`:''}${s.notes?`<blockquote class="spotlight-notes">${escapeHtml(s.notes.length>220?s.notes.slice(0,220)+'…':s.notes)}</blockquote>`:'<p class="spotlight-hint">Tip: jot down where you stopped so future you knows what\'s next.</p>'}<div class="spotlight-progress"><div class="progress-track"><i style="width:${s.percent}%"></i></div><strong>${s.percent}%</strong></div><div class="spotlight-actions"><button class="button primary" data-game="${escapeHtml(game.id)}">Update progress</button><button class="button ghost" data-guide="${escapeHtml(game.id)}">📖 ${CheckpointGuide.hasGuide(game.id)?'Resume guide':'Open walkthrough'}</button><button class="text-button small" data-track-change>Track a different game</button></div></div></div>`;
+  }else renderTracker();
   const total=library.length,count=st=>library.filter(g=>stateFor(g.id).status===st).length,playing=count('playing'),beaten=count('beaten'),systems=new Set(library.map(g=>g.platform)).size;
-  $("#stats").innerHTML=[[total.toLocaleString(),'Games owned','across '+systems+' systems'],[playing,'Playing now',playing?'keep going':'pick one up'],[beaten,'Games beaten',total?`${(beaten/total*100).toFixed(beaten/total<.1?1:0)}% of library`:''],[recommendations().length,'Series gaps','games to collect']].map(([n,l,e])=>`<div class="stat"><span>${l}</span><strong>${n}</strong><em>${e}</em></div>`).join('');
-  const queue=library.filter(g=>g.id!==game.id&&['playing','on-hold'].includes(stateFor(g.id).status));
-  $("#upNextSection").classList.toggle('hidden',!queue.length);$("#upNext").innerHTML=queue.slice(0,14).map(shelfGame).join('');
+  const fs=finishStats();
+  $("#stats").innerHTML=[[fs.beaten,'Games beaten',fs.thisYear?`${fs.thisYear} this year`:'beat one to start your shelf',''],[`${fs.rate}%`,'Finish rate',`${fs.beaten} beaten of ${fs.beaten+fs.inProgress} started`,''],[fs.inProgress,'In progress',fs.inProgress>3?'that\'s a lot. Try finishing one first':fs.inProgress?'nicely focused':'pick one to focus on',fs.inProgress>3?'warn':''],[total.toLocaleString(),'Games owned',`across ${systems} systems`,'']].map(([n,l,e,c])=>`<div class="stat ${c}"><span>${l}</span><strong>${n}</strong><em>${e}</em></div>`).join('');
+  const queue=unfinished().filter(g=>g.id!==game?.id);
+  $("#upNextSection").classList.toggle('hidden',!queue.length);$("#upNext").innerHTML=queue.slice(0,12).map(finishCard).join('');
+  $("#forYouHeading").textContent=queue.length||game?'Play these when you finish':'Recommended for you';
+  const trophies=library.filter(g=>stateFor(g.id).status==='beaten').sort((a,b)=>(progress[b.id]?.beatenAt||'').localeCompare(progress[a.id]?.beatenAt||''));
+  $("#trophySection").classList.toggle('hidden',!trophies.length);$("#trophyCount").textContent=`${trophies.length} beaten`;$("#trophyShelf").innerHTML=trophies.slice(0,24).map(shelfGame).join('');
   const counts=new Map();library.forEach(g=>counts.set(g.platform,(counts.get(g.platform)||0)+1));
   $("#systemCount").textContent=`${counts.size} detected`;
   $("#platformChips").innerHTML=[...counts].sort((a,b)=>b[1]-a[1]).map(([p,n])=>`<button class="platform-chip" data-platform-link="${escapeHtml(p)}" style="--family:${familyColor(p)}"><span class="sys-dot"></span>${escapeHtml(shortPlatform(p))}<b>${n.toLocaleString()}</b></button>`).join('');
-  const recs=recommendations().slice(0,3);
-  $("#recommendationPreview").innerHTML=recs.length?recs.map(r=>`<div class="rec-mini">${entryCover(r.series,r.entry,'mini')}<div><p class="eyebrow">${escapeHtml(r.series.name)}</p><strong>${escapeHtml(r.title)}</strong><p class="muted small">${escapeHtml(r.reason)}</p></div></div>`).join(''):`<div class="rec-preview"><strong>Your known series are caught up.</strong><p class="muted">Add more games or import another scan to uncover new paths.</p></div>`;
+  renderForYou(new Set(playingNow.map(g=>g.id)));
   const recent=[...library].map((g,i)=>[g,i]).sort((a,b)=>(b[0].importedAt||'').localeCompare(a[0].importedAt||'')||b[1]-a[1]).slice(0,16).map(x=>x[0]);
   $("#recentGames").innerHTML=recent.map(shelfGame).join('');
   hydrateArt($("#dashboardView"));
+  if(!game)return;
   const bd=$('[data-backdrop]');const k=`g:${game.id}`;const applyBackdrop=()=>{const a=loadedArt.get(k);if(a)bd.style.backgroundImage=`url("${a.src}")`};applyBackdrop();if(!loadedArt.has(k))CheckpointArt.resolve(game).then(ref=>{if(ref)bd.style.backgroundImage=`url("${CheckpointArt.urls(ref)[0]}")`});
 }
+function renderTracker(query=''){
+  const q=norm(query),matches=q?library.filter(g=>haystack(g).includes(q)).slice(0,6):[],picks=trackSuggestions();
+  const el=$("#spotlight");
+  if(!el.querySelector('#trackSearch')){
+    el.innerHTML=`<div class="tracker-inner"><div class="tracker-copy"><p class="eyebrow">NOW PLAYING</p><h2>What are you playing right now?</h2><p class="muted">Pick one game to focus on and see it through to the credits. Checkpoint keeps its progress, your notes and the walkthrough one click away.</p><label class="search tracker-search"><span aria-hidden="true">⌕</span><input id="trackSearch" type="search" placeholder="Search your ${library.length.toLocaleString()} games…" autocomplete="off" aria-label="Search your library for a game to track"></label><div class="track-results" id="trackResults"></div></div><div class="tracker-picks"><p class="small muted" id="trackPicksLabel"></p><div class="track-picks" id="trackPicks"></div></div></div>`;
+  }
+  $("#trackResults").innerHTML=q?(matches.length?matches.map(g=>`<button class="track-result" data-track="${escapeHtml(g.id)}">${cover(g,'mini')}<span><b>${escapeHtml(g.title)}</b><small>${escapeHtml(shortPlatform(g.platform))} · ${STATUS_LABEL[stateFor(g.id).status]}</small></span><em>Track</em></button>`).join(''):'<p class="muted small">No games match.</p>'):'';
+  $("#trackPicksLabel").textContent=unfinished().length?'Finish what you started':'Or start one of these';
+  $("#trackPicks").innerHTML=picks.map(g=>`<button class="track-pick" data-track="${escapeHtml(g.id)}" title="Track ${escapeHtml(g.title)}">${cover(g)}<b>${escapeHtml(g.title)}</b><small>${isStarted(g)?`${stateFor(g.id).percent}% done`:shortPlatform(g.platform)}</small></button>`).join('');
+  hydrateArt(el);
+}
+function startPlaying(id,holdOthers){const g=byId(id);if(!g)return;if(holdOthers)for(const o of nowPlaying())if(o.id!==id)progress[o.id]={...stateFor(o.id),status:'on-hold',updatedAt:new Date().toISOString()};saveState(id,{...stateFor(id),status:'playing'});toast(`${g.title} is now your focus`);route('dashboard')}
+/* Starting something new while another game is in progress asks first: the point is to finish games. */
+function askFocus(id,{onStart,onCancel}={}){
+  const g=byId(id),others=nowPlaying().filter(o=>o.id!==id);
+  if(!g)return;
+  if(!others.length){(onStart||(()=>startPlaying(id,false)))(false);return}
+  const cur=others[0],cs=stateFor(cur.id);
+  $("#focusCurrent").innerHTML=`${cover(cur,'mini')}<div><b>${escapeHtml(cur.title)}</b><small>${cs.percent}% done${others.length>1?` · plus ${others.length-1} more in progress`:''}</small><div class="progress-track"><i style="width:${cs.percent}%"></i></div></div>`;
+  $("#focusTitle").textContent=`You're still playing ${cur.title}`;
+  $("#focusNew").textContent=g.title;
+  $("#focusHold").textContent=`Put ${others.length>1?'them':'it'} on hold and start ${g.title}`;
+  const dlg=$("#focusDialog");
+  $("#focusHold").onclick=()=>{dlg.close();(onStart||(h=>startPlaying(id,h)))(true)};
+  $("#focusBoth").onclick=()=>{dlg.close();(onStart||(h=>startPlaying(id,h)))(false)};
+  $("#focusKeep").onclick=()=>{dlg.close();onCancel?.();toast(`Keep going, you've got ${cur.title} this far!`)};
+  hydrateArt($("#focusCurrent"));dlg.showModal();
+}
+function trackGame(id){askFocus(id)}
+function celebrate(id){
+  const g=byId(id);if(!g)return;const st=finishStats(),s=stateFor(id);
+  const days=s.startedAt?Math.max(1,Math.round((Date.parse(s.beatenAt)-Date.parse(s.startedAt))/864e5)):null;
+  const ord=n=>n+(['th','st','nd','rd'][(n%100-20)%10]||['th','st','nd','rd'][n%100]||'th');
+  $("#celebrateCover").innerHTML=cover(g,'celebrate-cover');
+  $("#celebrateTitle").textContent=`You beat ${g.title}!`;
+  $("#celebrateText").textContent=`That's your ${ord(st.beaten)} game finished${st.thisYear?`, ${st.thisYear} this year`:''}.${days?` It took ${days} day${days===1?'':'s'} from start to finish.`:''}`;
+  const next=[...playNextPicks(new Set()).filter(p=>p.score>=80).map(p=>({game:p.game,why:p.reason})),...unfinished().map(u=>({game:u,why:`${stateFor(u.id).percent}% done. Finish what you started`}))].filter((x,i,a)=>a.findIndex(y=>y.game.id===x.game.id)===i).slice(0,3);
+  $("#celebrateNext").innerHTML=next.length?`<p class="small muted">Pick your next focus</p>`+next.map(n=>`<button class="track-result" data-track="${escapeHtml(n.game.id)}">${cover(n.game,'mini')}<span><b>${escapeHtml(n.game.title)}</b><small>${escapeHtml(n.why)}</small></span><em>Focus</em></button>`).join(''):'';
+  hydrateArt($("#celebrateDialog"));$("#celebrateDialog").showModal();
+}
+function renderForYou(exclude){
+  const play=playNextPicks(exclude).slice(0,3),gaps=recommendations().slice(0,6-play.length);
+  const cards=[...play.map(p=>`<article class="for-you-card own">${cover(p.game,'fy')}<div class="fy-body"><p class="fy-kind">▶ In your library</p><h3>${escapeHtml(p.game.title)}</h3><p class="muted small">${escapeHtml(p.reason)}</p><div class="fy-actions"><button class="mini-button on" data-track="${escapeHtml(p.game.id)}">Start playing</button><button class="mini-button subtle" data-game="${escapeHtml(p.game.id)}">Details</button></div></div></article>`),
+    ...gaps.map(r=>`<article class="for-you-card gap">${entryCover(r.series,r.entry,'fy')}<div class="fy-body"><p class="fy-kind">＋ Add to your collection</p><h3>${escapeHtml(r.title)}</h3><p class="muted small">${escapeHtml(r.reason)} (${escapeHtml(r.series.name)}).</p>${platformChips(r.platforms)}<div class="fy-actions"><button class="mini-button" data-mark="want" data-series="${enc(r.series.name)}" data-entry="${enc(r.title)}">＋ Hunt</button><button class="mini-button subtle" data-mark="skip" data-series="${enc(r.series.name)}" data-entry="${enc(r.title)}">Not for me</button></div></div></article>`)];
+  $("#forYouSection").classList.toggle('hidden',!cards.length);$("#forYou").innerHTML=cards.join('');
+}
+function finishCard(g){const s=stateFor(g.id);return`<article class="finish-card">${cover(g,'mini')}<div class="fc-body" data-game="${escapeHtml(g.id)}" role="button" tabindex="0"><b>${escapeHtml(g.title)}</b><small>${escapeHtml(shortPlatform(g.platform))} · ${STATUS_LABEL[s.status]}</small><div class="fc-progress"><div class="progress-track"><i style="width:${s.percent}%"></i></div><strong>${s.percent}%</strong></div></div><button class="mini-button" data-track="${escapeHtml(g.id)}">Make focus</button></article>`}
 function shelfGame(g){const s=stateFor(g.id);return`<div class="shelf-game" data-game="${escapeHtml(g.id)}" tabindex="0" role="button" aria-label="${escapeHtml(g.title)}">${cover(g)}${s.percent?`<div class="cover-progress"><i style="width:${s.percent}%"></i></div>`:''}<b>${escapeHtml(g.title)}</b><small>${escapeHtml(shortPlatform(g.platform))}</small></div>`}
 
 /* ---------------- library ---------------- */
@@ -293,6 +369,8 @@ document.addEventListener('click',e=>{
   const sf=e.target.closest('[data-series-filter]');if(sf){quest.status=sf.dataset.seriesFilter;saveQuest();renderRecommendations();return}
   const qt=e.target.closest('[data-quest-tab]');if(qt){quest.tab=qt.dataset.questTab;quest.limit=40;saveQuest();renderRecommendations();return}
   const qs=e.target.closest('[data-quest-system]');if(qs){quest.system=qs.dataset.questSystem;quest.limit=40;saveQuest();renderRecommendations();return}
+  const track=e.target.closest('[data-track]');if(track){if($("#celebrateDialog").open)$("#celebrateDialog").close();trackGame(track.dataset.track);return}
+  if(e.target.closest('[data-track-change]')){$("#spotlight").classList.add('tracker');$("#spotlight").innerHTML='';renderTracker();hydrateArt($("#spotlight"));$("#trackSearch").focus();return}
   const guideBtn=e.target.closest('[data-guide]');if(guideBtn){openGuide(guideBtn.dataset.guide);return}
   const game=e.target.closest('[data-game]');if(game&&!e.target.closest('dialog'))openGame(game.dataset.game);
 });
@@ -309,11 +387,14 @@ $("#loadMoreButton").onclick=()=>{libraryVisibleCount+=LIBRARY_PAGE_SIZE;renderL
 let questTimer;$("#questSearch").oninput=()=>{clearTimeout(questTimer);questTimer=setTimeout(()=>{quest.limit=40;renderRecommendations()},150)};
 $("#questSort").onchange=e=>{quest.sort[quest.tab]=e.target.value;saveQuest();renderQuestPanel()};
 $("#questMore").onclick=()=>{quest.limit+=40;renderQuestPanel()};$("#copyHuntButton").onclick=copyHuntList;
+document.addEventListener('input',e=>{if(e.target.id==='trackSearch')renderTracker(e.target.value)});
 document.addEventListener('change',e=>{if(e.target.id==='questSystemMore'&&e.target.value){quest.system=e.target.value;quest.limit=40;saveQuest();renderRecommendations()}});
 $("#closeGoalButton").onclick=()=>{activeSeriesName=null;renderRecommendations();$("#questBrowse").scrollIntoView({block:"start"})};
 $("#dialogProgress").oninput=e=>$("#progressOutput").value=`${e.target.value}%`;
 $$('input[name="dialogStatus"]').forEach(r=>r.onchange=()=>{if(r.value==='beaten'&&r.checked){$("#dialogProgress").value=100;$("#progressOutput").value='100%'}});
-$("#saveGameButton").onclick=()=>{if(!activeGameId)return;const status=$('input[name="dialogStatus"]:checked')?.value||'backlog';saveState(activeGameId,{...stateFor(activeGameId),status,percent:Number($("#dialogProgress").value),notes:$("#dialogNotes").value.trim()});toast('Game progress saved')};
+$("#saveGameButton").onclick=()=>{if(!activeGameId)return;const id=activeGameId,prev=stateFor(id),status=$('input[name="dialogStatus"]:checked')?.value||'backlog',fields={...prev,percent:Number($("#dialogProgress").value),notes:$("#dialogNotes").value.trim()};
+  if(status==='playing'&&prev.status!=='playing'&&nowPlaying().some(o=>o.id!==id)){setTimeout(()=>askFocus(id,{onStart:hold=>{if(hold)for(const o of nowPlaying())if(o.id!==id)progress[o.id]={...stateFor(o.id),status:'on-hold'};saveState(id,{...fields,status:'playing'});toast('Game progress saved')},onCancel:()=>saveState(id,{...fields,status:prev.status})}),0);return}
+  saveState(id,{...fields,status});if(status!=='beaten')toast('Game progress saved')};
 $("#openGuideButton").onclick=()=>{if(activeGameId)openGuide(activeGameId)};
 $("#changeArtButton").onclick=()=>{const p=$("#artPicker");p.classList.toggle('hidden');if(!p.classList.contains('hidden'))renderArtOptions()};
 let artTimer;$("#artSearch").oninput=()=>{clearTimeout(artTimer);artTimer=setTimeout(renderArtOptions,250)};
