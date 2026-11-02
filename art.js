@@ -11,7 +11,7 @@
  * whether a box art image exists. Results are cached in localStorage.
  */
 (function () {
-  const INDEX_VERSION = 3;
+  const INDEX_VERSION = 4;
   const CACHE_KEY = "checkpoint.artcache.v1";
   const OVERRIDE_KEY = "checkpoint.art.v1";
   const TYPES = [[1, "Named_Boxarts"], [2, "Named_Titles"], [4, "Named_Snaps"]];
@@ -79,6 +79,25 @@
     return words.map((t) => ROMAN[t] || (/^0+\d/.test(t) ? String(Number(t)) : t)).filter((t) => t !== "the" && !JUNK.has(t));
   }
   const keyOf = (text) => tokens(text).join("");
+  // Extra spellings worth trying: "A08 Tekken 6" / "07 tekken 5" (two-digit or lettered
+  // catalog prefixes) and fan versions like "Zelda 2 Redux" or "MOTHER Restored".
+  function cleanVariants(text) {
+    const base = baseOf(text || "");
+    const out = [base.replace(/^[A-Za-z]?\d{2,3}[\s._-]+(?=[A-Za-z])/, ""), base.replace(/[\s-]+(redux|restored|remastered|enhanced|hack|improvement|fixed|retranslated)\b.*$/i, "")];
+    return out.filter((v) => v && v !== base);
+  }
+  // Keys used to recognise a game as a Series Quest entry.
+  function seriesKeys(text) {
+    const out = new Set();
+    for (const variant of [text || "", ...cleanVariants(text)]) {
+      const k = keyOf(variant);
+      if (!k) continue;
+      out.add(k); out.add(k.replace(/version/g, ""));
+      if (k.startsWith("legendofzelda")) out.add("zelda" + k.slice(13)); else if (k.startsWith("zelda")) out.add("legendofzelda" + k.slice(5));
+    }
+    out.delete("");
+    return [...out];
+  }
 
   /* ---------- index loading ---------- */
   const systems = new Map();
@@ -147,7 +166,7 @@
     }
     out.push(stem, game.title);
     const noOne = (q) => q && /\s1$/.test(baseOf(q)) ? baseOf(q).replace(/\s1$/, "") : null;   // "Sonic the Hedgehog 1"
-    return [...new Set([...out, ...out.map(noOne)].filter(Boolean))];
+    return [...new Set([...out, ...out.map(noOne), ...out.flatMap(cleanVariants)].filter(Boolean))];
   }
   function wantedRegion(game) {
     if (game.region) return game.region.split(/[,\s]+/)[0];
@@ -202,7 +221,7 @@
             // "LEGO Batman USA PSP-pSyPSP" contains the whole main title of "LEGO Batman - The Videogame";
             // "Metal Slug" is the main title of "Metal Slug - Super Vehicle-001".
             const main = tokens(idx.names[i].split(" - ")[0]);
-            if (main.length >= 2 && numbers(main) === qn && main.every((t) => qt.includes(t))) sim = Math.max(sim, 0.8 + main.length / 100);
+            if (main.length >= 2 && numbers(main) === qn && main.every((t) => qt.includes(t)) && main.length / new Set(qt).size >= 0.6) sim = Math.max(sim, 0.8 + main.length / 100);
           }
           if (sim < fuzzyThreshold) continue;
           const score = sim * 100 - order * 5 + flagScore(idx, i) + regionScore(idx.names[i], region, disc);
@@ -297,5 +316,5 @@
     if (todo.length && onDone) onDone(todo.length);
   }
 
-  window.CheckpointArt = { refFor, cached, warm, keyOf, baseOf, resolve, resolveTitle, search, urls, setOverride, hideArt, clearOverride, hasOverride, exportOverrides, importOverrides, forget, supports: (p) => Boolean(PLATFORM_SYSTEMS[p]), _test: { tokens, keyOf, rank, indexesFor, queriesFor } };
+  window.CheckpointArt = { refFor, cached, warm, seriesKeys, keyOf, baseOf, resolve, resolveTitle, search, urls, setOverride, hideArt, clearOverride, hasOverride, exportOverrides, importOverrides, forget, supports: (p) => Boolean(PLATFORM_SYSTEMS[p]), _test: { tokens, keyOf, rank, indexesFor, queriesFor } };
 })();

@@ -71,6 +71,7 @@ Series Quest finds the holes in franchises you already play and helps you collec
 - **Every missing game shows the consoles it was released on**, with the systems you already have highlighted, plus its box art.
 - **Gaps are ranked**: the next game after your newest one first, then earlier entries you skipped, with a boost for nearly complete franchises and systems you already play.
 - **Three tabs, one filter bar**: *Gaps to fill*, *Franchises* and *Hunt list* share a filter bar that stays on screen, with system chips (your systems first, each showing how many games match), search, and a sort menu. Gaps can be ranked, grouped by franchise or system, or sorted by closeness to finishing. Your last tab, system and sort are remembered.
+- **See where every game falls in its series.** Library cards show a badge like "#3 Metroid", and the library can be sorted **By series order**. The game window shows the whole series in release order with your game highlighted: click an owned game to jump to it, or ＋ Hunt a missing one.
 - **Mark any missing game** as **＋ Hunt** (adds it to your hunt list), **Have it** (you own or finished it elsewhere), or **Skip** (not counted toward the goal). The hunt list has price-check links and can be copied as a checklist. Marks are saved in backups.
 
 `art-index/series-index.json` records which systems each entry appeared on. Regenerate it after editing `series-data.js`:

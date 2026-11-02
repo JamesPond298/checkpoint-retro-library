@@ -91,7 +91,7 @@
         <div class="toolbar">
           <label class="search"><span aria-hidden="true">⌕</span><input id="searchInput" type="search" placeholder="Search games…" aria-label="Search games"></label>
           <select id="platformFilter" aria-label="Filter by platform"><option value="all">All platforms</option></select>
-          <select id="sortSelect" aria-label="Sort games"><option value="title">A → Z</option><option value="recent">Recently added</option><option value="progress">Most progress</option><option value="platform">By system</option></select>
+          <select id="sortSelect" aria-label="Sort games"><option value="title">A → Z</option><option value="recent">Recently added</option><option value="progress">Most progress</option><option value="platform">By system</option><option value="series">By series order</option></select>
         </div>
         <div class="status-tabs" id="statusTabs" role="tablist" aria-label="Status"></div>
         <div id="libraryGrid" class="library-grid"></div>
@@ -167,6 +167,7 @@
         </fieldset>
         <label class="field">Progress <output id="progressOutput">0%</output><input id="dialogProgress" type="range" min="0" max="100" step="5" value="0"></label>
         <label class="field">Where did you stop?<textarea id="dialogNotes" rows="4" placeholder="Write a reminder for your future self…"></textarea></label>
+        <div class="dialog-series hidden" id="dialogSeries"></div>
         <div class="guide-block">
           <button type="button" class="button guide-button" id="openGuideButton"><span aria-hidden="true">📖</span> Open walkthrough<small id="guideResume"></small></button>
           <div class="guide-links">
