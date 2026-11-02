@@ -72,7 +72,7 @@ function triggerImport(){$("#inventoryInput").click()}
 
 /* ---------------- series logic ---------------- */
 const MARKS_KEY='checkpoint.seriesmarks.v1';
-let marks=read(MARKS_KEY,{}),seriesIndex={},seriesFilter='all',showAllGaps=false;
+let marks=read(MARKS_KEY,{}),seriesIndex={};
 // Older versions stored dismissed suggestions as "Series:Entry"; carry them over as "skip".
 if(dismissed.length){for(const k of dismissed){const i=k.indexOf(':');if(i>0)marks[`${k.slice(0,i)}::${k.slice(i+1)}`]??='skip'}dismissed=[];write(STORAGE.dismissed,dismissed);write(MARKS_KEY,marks)}
 fetch('art-index/series-index.json').then(r=>r.ok?r.json():{}).then(d=>{seriesIndex=d||{};resetSeriesCache();renderAll()}).catch(()=>{});
@@ -90,7 +90,7 @@ const STATUS_RANK={playing:3,beaten:2,'on-hold':1,backlog:0};
 function ownedGame(entry,series){if(!gameKeyIndex)buildGameKeyIndex();const{generic,byPlatform}=entryKeys(series,entry),found=new Set();for(const k of generic)for(const g of gameKeyIndex.get(k)||[])if(series.systems.includes(g.platform)&&entryAllowed(entry,g.platform))found.add(g);for(const[p,keys]of Object.entries(byPlatform))for(const k of keys)for(const g of gameKeyIndex.get(k)||[])if(g.platform===p&&series.systems.includes(p)&&entryAllowed(entry,p))found.add(g);return[...found].sort((a,b)=>STATUS_RANK[stateFor(b.id).status]-STATUS_RANK[stateFor(a.id).status])[0]||null}
 function entryPlatforms(series,entry){return Object.keys(seriesIndex[series.name]?.[entry.title]||{})}
 const libraryPlatforms=()=>new Set(library.map(g=>g.platform));
-function entryArt(series,entry){const hits=seriesIndex[series.name]?.[entry.title]||{},mine=libraryPlatforms(),p=Object.keys(hits).sort((a,b)=>mine.has(b)-mine.has(a))[0];return p?{platform:p,system:hits[p][0],name:hits[p][1]}:{platform:series.systems[0]}}
+function entryArt(series,entry,prefer){const hits=seriesIndex[series.name]?.[entry.title]||{},mine=libraryPlatforms(),p=Object.keys(hits).sort((a,b)=>(b===prefer)-(a===prefer)||mine.has(b)-mine.has(a))[0];return p?{platform:p,system:hits[p][0],name:hits[p][1]}:{platform:series.systems[0]}}
 function seriesStatus(series){
   if(statusCache.has(series.name))return statusCache.get(series.name);
   const entries=series.entries.map((entry,index)=>{const game=ownedGame(entry,series),mark=marks[markKey(series,entry)]||null;return{entry,index,game,mark,collected:Boolean(game)||mark==='have',skipped:!game&&mark==='skip',wanted:!game&&mark==='want'}});
@@ -170,26 +170,12 @@ function renderLibrary(){
 function renderPlatforms(){const current=$("#platformFilter").value;const systems=[...new Set(library.map(g=>g.platform))].sort((a,b)=>displayPlatform(a).localeCompare(displayPlatform(b)));$("#platformFilter").innerHTML='<option value="all">All platforms</option>'+systems.map(p=>`<option value="${escapeHtml(p)}">${escapeHtml(displayPlatform(p))}</option>`).join('');$("#platformFilter").value=systems.includes(current)?current:'all'}
 
 /* ---------------- series quest ---------------- */
-function entryCover(series,entry,cls){const a=entryArt(series,entry),key=a.name?`r:${a.system}|${a.name}`:null;return`<div class="cover ${cls}${key?knownAttrs(key):'" style="'}--cover:${COLORS[entry.title.length%COLORS.length]};--family:${familyColor(a.platform)}"${a.name?` data-art-system="${escapeHtml(a.system)}" data-art-name="${escapeHtml(a.name)}"`:''}>${coverInner(entry.title,a.platform,key)}</div>`}
+function entryCover(series,entry,cls,prefer){const a=entryArt(series,entry,prefer),key=a.name?`r:${a.system}|${a.name}`:null;return`<div class="cover ${cls}${key?knownAttrs(key):'" style="'}--cover:${COLORS[entry.title.length%COLORS.length]};--family:${familyColor(a.platform)}"${a.name?` data-art-system="${escapeHtml(a.system)}" data-art-name="${escapeHtml(a.name)}"`:''}>${coverInner(entry.title,a.platform,key)}</div>`}
 function platformChips(platforms){const mine=libraryPlatforms();return platforms.length?`<span class="plat-chips">${platforms.map(p=>`<span class="plat-chip${mine.has(p)?' mine':''}" title="${mine.has(p)?'You already have games for this system':displayPlatform(p)}">${escapeHtml(shortPlatform(p))}</span>`).join('')}</span>`:''}
 const enc=encodeURIComponent;
 function markButtons(series,entry,mark){const s=enc(series.name),t=enc(entry.title);if(mark==='have'||mark==='skip')return`<button class="mini-button" data-mark="" data-series="${s}" data-entry="${t}">Undo</button>`;return`<button class="mini-button${mark==='want'?' on':''}" data-mark="${mark==='want'?'':'want'}" data-series="${s}" data-entry="${t}" title="Add to your hunt list">${mark==='want'?'✓ Hunting':'＋ Hunt'}</button><button class="mini-button" data-mark="have" data-series="${s}" data-entry="${t}" title="You own or finished it outside this library">Have it</button><button class="mini-button subtle" data-mark="skip" data-series="${s}" data-entry="${t}" title="Not interested — exclude from this goal">Skip</button>`}
 function priceUrl(title,platforms){return`https://www.pricecharting.com/search-products?type=prices&q=${enc(title+(platforms[0]?' '+shortPlatform(platforms[0]):''))}`}
-function renderSeriesFilters(){const current=$("#seriesPlatform").value;const systems=[...new Set(SERIES.flatMap(s=>s.systems))].sort((a,b)=>displayPlatform(a).localeCompare(displayPlatform(b)));$("#seriesPlatform").innerHTML='<option value="all">All systems</option>'+systems.map(s=>`<option value="${s}">${escapeHtml(displayPlatform(s))}</option>`).join('');$("#seriesPlatform").value=systems.includes(current)?current:'all'}
 function renderQuestStats(){const started=SERIES.filter(s=>seriesStatus(s).started),collected=started.reduce((a,s)=>a+seriesStatus(s).collected,0),total=started.reduce((a,s)=>a+seriesStatus(s).total,0),complete=started.filter(s=>!seriesStatus(s).missing.length).length;$("#questStats").innerHTML=[[`${started.length}<small>/${SERIES.length}</small>`,'Franchises started',`${complete} complete`],[`${collected}<small>/${total}</small>`,'Games collected','in started franchises'],[seriesGaps().length,'Gaps to fill','ranked below'],[huntList().length,'On your hunt list','games to track down']].map(([n,l,e])=>`<div class="stat"><span>${l}</span><strong>${n}</strong><em>${e}</em></div>`).join('')}
-function renderHunt(){const list=huntList();$("#huntSection").classList.toggle('hidden',!list.length);$("#huntList").innerHTML=list.map(({series,entry,platforms})=>`<article class="hunt-card">${entryCover(series,entry,'rec')}<div class="hunt-body"><p class="eyebrow">${escapeHtml(series.name)}</p><h3>${escapeHtml(entry.title)}</h3>${platformChips(platforms)}<div class="hunt-actions"><a class="mini-button" href="${priceUrl(entry.title,platforms)}" target="_blank" rel="noopener">Price check ↗</a><button class="mini-button" data-mark="have" data-series="${enc(series.name)}" data-entry="${enc(entry.title)}">Got it</button><button class="mini-button subtle" data-mark="" data-series="${enc(series.name)}" data-entry="${enc(entry.title)}">Remove</button></div></div></article>`).join('');hydrateArt($("#huntList"))}
-function renderGaps(){const gaps=seriesGaps(),shown=showAllGaps?gaps:gaps.slice(0,12);$("#recommendationList").innerHTML=shown.map(r=>`<article class="recommendation-card">${entryCover(r.series,r.entry,'rec')}<div><p class="eyebrow">${escapeHtml(r.series.name)} · ${r.left} left</p><h3>${escapeHtml(r.title)}</h3><p>${escapeHtml(r.reason)}</p><div class="rec-meta"><span class="kind ${r.kind}">${{earlier:'↶ Fills a gap',next:'→ Next in line',later:'… Later entry'}[r.kind]}</span>${platformChips(r.platforms)}</div><div class="rec-actions">${markButtons(r.series,r.entry,null)}</div></div></article>`).join('');$("#recommendationEmpty").classList.toggle('hidden',gaps.length>0);$("#gapCount").textContent=gaps.length?`${gaps.length} missing across the franchises you've started`:'';const more=$("#showAllGaps");more.classList.toggle('hidden',gaps.length<=12);more.textContent=showAllGaps?'Show top 12':`Show all ${gaps.length} gaps`;hydrateArt($("#recommendationList"))}
-const SERIES_FILTERS=[['all','All'],['started','In progress'],['almost','Almost done'],['complete','Complete'],['new','Not started']];
-function renderSeriesCatalog(){
-  const q=norm($("#seriesSearch").value),platform=$("#seriesPlatform").value;
-  const test={all:()=>true,started:st=>st.started&&st.missing.length,almost:st=>st.started&&st.missing.length&&st.missing.length<=2,complete:st=>st.started&&!st.missing.length,new:st=>!st.started};
-  const rows=SERIES.map(series=>({series,st:seriesStatus(series)})).filter(({series})=>(!q||norm(series.name+' '+series.entries.map(e=>e.title).join(' ')).includes(q))&&(platform==='all'||series.systems.includes(platform)));
-  $("#seriesFilters").innerHTML=SERIES_FILTERS.map(([v,l])=>`<button class="status-tab${seriesFilter===v?' active':''}" data-series-filter="${v}">${l}<b>${rows.filter(r=>test[v](r.st)).length}</b></button>`).join('');
-  const catalog=rows.filter(r=>test[seriesFilter](r.st)).sort((a,b)=>(b.st.started-a.st.started)||(a.st.missing.length?1:0)-(b.st.missing.length?1:0)||b.st.percent-a.st.percent||a.series.name.localeCompare(b.series.name));
-  $("#goalDetail").classList.toggle('hidden',!activeSeriesName);
-  $("#seriesCatalog").innerHTML=catalog.length?catalog.map(({series,st})=>{const next=st.missing.find(e=>e.index>st.highest)||st.missing[0],stack=st.entries.filter(e=>e.game).slice(0,4);return`<article class="series-card${st.started?' started':''}${st.started&&!st.missing.length?' complete':''}"><div class="series-stack">${stack.length?stack.map(e=>cover(e.game,'stack')).join(''):series.entries.slice(0,3).map(e=>entryCover(series,e,'stack ghost')).join('')}</div><h3>${escapeHtml(series.name)}</h3><p class="series-systems">${series.systems.map(shortPlatform).join(' · ')}</p><div class="progress-track"><i style="width:${st.percent}%"></i></div><div class="series-count"><span>${st.collected} of ${st.total} collected</span><strong>${st.missing.length?`${st.missing.length} missing`:'Complete ★'}</strong></div>${next&&st.started?`<p class="series-next">Next up: <b>${escapeHtml(next.entry.title)}</b></p>`:''}<button class="button ghost full" data-open-series="${enc(series.name)}">View checklist</button></article>`}).join(''):'<p class="no-results">No franchise goals match.</p>';
-  hydrateArt($("#seriesCatalog"));
-}
 function renderGoalDetail(){
   const series=SERIES.find(s=>s.name===activeSeriesName),detail=$("#goalDetail");detail.classList.toggle('hidden',!series);if(!series)return;
   const st=seriesStatus(series);
@@ -199,7 +185,75 @@ function renderGoalDetail(){
   $("#goalChecklist").innerHTML=st.entries.map(({entry,index,game,mark,collected,skipped})=>{const state=game?stateFor(game.id):null,platforms=entryPlatforms(series,entry);const meta=game?`${escapeHtml(displayPlatform(game.platform))} · ${STATUS_LABEL[state.status]}${state.percent?` · ${state.percent}%`:''}`:mark==='have'?'Marked as owned outside this library':skipped?'Skipped — not counted toward this goal':`${platforms.length?'Released on '+platformChips(platforms):'Not detected in your library'}`;return`<article class="goal-row ${game||mark==='have'?'owned':skipped?'skipped':'missing'}${mark==='want'?' wanted':''}">${game?cover(game,'mini'):entryCover(series,entry,'mini')}<div class="goal-text"><strong>${index+1}. ${escapeHtml(entry.title)}</strong><p>${meta}</p></div><div class="goal-actions">${game?`<button class="mini-button" data-game="${escapeHtml(game.id)}">Open</button>`:markButtons(series,entry,mark)}</div><span class="goal-check" aria-hidden="true">${game?(state.status==='beaten'?'★':'✓'):collected?'✓':skipped?'–':'○'}</span></article>`}).join('');
   hydrateArt(detail);
 }
-function renderRecommendations(){renderSeriesFilters();renderQuestStats();renderHunt();renderGoalDetail();renderGaps();renderSeriesCatalog()}
+/* One toolbar drives three views: gaps to fill, franchise goals and the hunt list.
+   The system chips, search and sort apply to whichever view is open. */
+const QUEST_KEY='checkpoint.questui.v1';
+let quest={tab:'gaps',system:'all',status:'all',sort:{},...read(QUEST_KEY,{}),limit:40};
+const saveQuest=()=>write(QUEST_KEY,{tab:quest.tab,system:quest.system,status:quest.status,sort:quest.sort});
+const QUEST_TABS=[['gaps','Gaps to fill'],['franchises','Franchises'],['hunt','Hunt list']];
+const QUEST_SORTS={gaps:[['best','Best next pick'],['franchise','Group by franchise'],['system','Group by system'],['closest','Closest to finishing'],['title','Title A–Z']],franchises:[['closest','Closest to complete'],['missing','Most missing'],['owned','Most collected'],['name','Name A–Z']],hunt:[['franchise','Group by franchise'],['system','Group by system'],['title','Title A–Z']]};
+const QUEST_HINTS={gaps:'Missing games from franchises you’ve started. The next game in line ranks first, then earlier entries you skipped.',franchises:'Every franchise Checkpoint tracks. Open one to see its full checklist.',hunt:'Games you’ve decided to collect. Rescan after adding them to your card and they’ll be checked off automatically.'};
+const SERIES_FILTERS=[['all','All'],['started','In progress'],['almost','Almost done'],['complete','Complete'],['new','Not started']];
+const STATUS_TESTS={all:()=>true,started:st=>st.started&&st.missing.length>0,almost:st=>st.started&&st.missing.length>0&&st.missing.length<=2,complete:st=>st.started&&!st.missing.length,new:st=>!st.started};
+const sortKey=()=>{const opts=QUEST_SORTS[quest.tab];return opts.some(o=>o[0]===quest.sort[quest.tab])?quest.sort[quest.tab]:opts[0][0]};
+function questItems(tab){
+  if(tab==='gaps')return seriesGaps().map(r=>({...r,systems:r.platforms,text:`${r.title} ${r.series.name}`}));
+  if(tab==='hunt')return huntList().map(h=>({...h,title:h.entry.title,systems:h.platforms,text:`${h.entry.title} ${h.series.name}`}));
+  return SERIES.map(series=>({series,st:seriesStatus(series),systems:series.systems,text:`${series.name} ${series.entries.map(e=>e.title).join(' ')}`})).filter(i=>STATUS_TESTS[quest.status]?.(i.st)??true);
+}
+const searchQuery=()=>norm($("#questSearch").value);
+const bySearch=(items,q)=>q?items.filter(i=>norm(i.text).includes(q)):items;
+const bySystem=(items,sys)=>sys==='all'?items:items.filter(i=>i.systems.includes(sys));
+function homeSystem(item){if(quest.system!=='all')return quest.system;const mine=libraryPlatforms();return item.systems.find(p=>mine.has(p))||item.systems[0]||'other'}
+function renderQuestBar(){
+  const q=searchQuery();
+  $("#questTabs").innerHTML=QUEST_TABS.map(([v,l])=>`<button role="tab" class="quest-tab${quest.tab===v?' active':''}" aria-selected="${quest.tab===v}" data-quest-tab="${v}">${l}<b>${bySystem(bySearch(questItems(v),q),quest.system).length}</b></button>`).join('');
+  const base=bySearch(questItems(quest.tab),q),mine=libraryPlatforms(),counts=new Map();
+  base.forEach(i=>i.systems.forEach(p=>counts.set(p,(counts.get(p)||0)+1)));
+  const systems=[...new Set([...mine].filter(p=>SERIES.some(s=>s.systems.includes(p))))];
+  if(quest.system!=='all'&&!systems.includes(quest.system))systems.push(quest.system);
+  systems.sort((a,b)=>(counts.get(b)||0)-(counts.get(a)||0)||shortPlatform(a).localeCompare(shortPlatform(b)));
+  $("#questSystems").innerHTML=`<button class="sys-chip${quest.system==='all'?' active':''}" data-quest-system="all">All systems<b>${base.length}</b></button>`+systems.map(p=>`<button class="sys-chip${quest.system===p?' active':''}${counts.get(p)?'':' empty'}" data-quest-system="${p}" style="--family:${familyColor(p)}"><span class="sys-dot"></span>${escapeHtml(shortPlatform(p))}<b>${counts.get(p)||0}</b></button>`).join('')+`<select id="questSystemMore" class="sys-more" aria-label="Other systems"><option value="">More systems…</option>${[...new Set(SERIES.flatMap(s=>s.systems))].filter(p=>!systems.includes(p)).sort((a,b)=>displayPlatform(a).localeCompare(displayPlatform(b))).map(p=>`<option value="${p}">${escapeHtml(displayPlatform(p))}</option>`).join('')}</select>`;
+  $("#questSort").innerHTML=QUEST_SORTS[quest.tab].map(([v,l])=>`<option value="${v}">${l}</option>`).join('');$("#questSort").value=sortKey();
+  $("#seriesFilters").classList.toggle('hidden',quest.tab!=='franchises');
+  if(quest.tab==='franchises'){const fr=bySystem(bySearch(SERIES.map(series=>({series,st:seriesStatus(series),systems:series.systems,text:`${series.name} ${series.entries.map(e=>e.title).join(' ')}`})),q),quest.system);$("#seriesFilters").innerHTML=SERIES_FILTERS.map(([v,l])=>`<button class="status-tab${quest.status===v?' active':''}" data-series-filter="${v}">${l}<b>${fr.filter(r=>STATUS_TESTS[v](r.st)).length}</b></button>`).join('')}
+  $("#copyHuntButton").classList.toggle('hidden',quest.tab!=='hunt'||!huntList().length);
+  $("#questHint").textContent=QUEST_HINTS[quest.tab];
+}
+function gapRow(r){return`<article class="quest-row">${entryCover(r.series,r.entry,'mini',quest.system)}<div class="qr-main"><strong>${escapeHtml(r.title)}</strong><p><button class="qr-series" data-open-series="${enc(r.series.name)}">${escapeHtml(r.series.name)}</button><span class="kind ${r.kind}">${{earlier:'Fills a gap',next:'Next in line',later:'Later entry'}[r.kind]}</span><span class="qr-reason">${escapeHtml(r.reason)} · ${r.left} left</span></p>${platformChips(r.platforms)}</div><div class="qr-actions">${markButtons(r.series,r.entry,null)}</div></article>`}
+function huntRow(h){return`<article class="quest-row hunt">${entryCover(h.series,h.entry,'mini',quest.system)}<div class="qr-main"><strong>${escapeHtml(h.entry.title)}</strong><p><button class="qr-series" data-open-series="${enc(h.series.name)}">${escapeHtml(h.series.name)}</button></p>${platformChips(h.platforms)}</div><div class="qr-actions"><a class="mini-button" href="${priceUrl(h.entry.title,quest.system!=='all'?[quest.system]:h.platforms)}" target="_blank" rel="noopener">Price check ↗</a><button class="mini-button" data-mark="have" data-series="${enc(h.series.name)}" data-entry="${enc(h.entry.title)}">Got it</button><button class="mini-button subtle" data-mark="" data-series="${enc(h.series.name)}" data-entry="${enc(h.entry.title)}">Remove</button></div></article>`}
+function franchiseCard({series,st}){const next=st.missing.find(e=>e.index>st.highest)||st.missing[0],stack=st.entries.filter(e=>e.game).slice(0,4);return`<article class="series-card${st.started?' started':''}${st.started&&!st.missing.length?' complete':''}" data-open-series="${enc(series.name)}" tabindex="0" role="button"><div class="series-stack">${stack.length?stack.map(e=>cover(e.game,'stack')).join(''):series.entries.slice(0,3).map(e=>entryCover(series,e,'stack ghost',quest.system)).join('')}</div><h3>${escapeHtml(series.name)}</h3><p class="series-systems">${series.systems.map(shortPlatform).join(' · ')}</p><div class="progress-track"><i style="width:${st.percent}%"></i></div><div class="series-count"><span>${st.collected} of ${st.total} collected</span><strong>${st.missing.length?`${st.missing.length} missing`:'Complete ★'}</strong></div>${next&&st.started?`<p class="series-next">Next up: <b>${escapeHtml(next.entry.title)}</b></p>`:''}</article>`}
+function grouped(items,keyFn,labelFn,rowFn){const groups=new Map();items.forEach(i=>{const k=keyFn(i);if(!groups.has(k))groups.set(k,[]);groups.get(k).push(i)});return[...groups].map(([k,list])=>`<div class="quest-group"><h3 class="quest-group-head">${labelFn(k,list)}<b>${list.length}</b></h3>${list.map(rowFn).join('')}</div>`).join('')}
+function renderQuestPanel(){
+  const items=bySystem(bySearch(questItems(quest.tab),searchQuery()),quest.system),sort=sortKey(),panel=$("#questPanel");
+  let html='',shown=items.length;
+  if(quest.tab==='franchises'){
+    const cmp={closest:(a,b)=>(b.st.started-a.st.started)||(a.st.missing.length===0)-(b.st.missing.length===0)||b.st.percent-a.st.percent||a.st.missing.length-b.st.missing.length,missing:(a,b)=>(b.st.started-a.st.started)||b.st.missing.length-a.st.missing.length,owned:(a,b)=>b.st.collected-a.st.collected,name:()=>0}[sort];
+    items.sort((a,b)=>cmp(a,b)||a.series.name.localeCompare(b.series.name));
+    html=items.length?`<div class="series-catalog">${items.map(franchiseCard).join('')}</div>`:'';
+  }else{
+    const rowFn=quest.tab==='gaps'?gapRow:huntRow,closeness=i=>{const st=seriesStatus(i.series);return st.collected/st.total};
+    if(sort==='title')items.sort((a,b)=>a.title.localeCompare(b.title));
+    if(sort==='closest')items.sort((a,b)=>closeness(b)-closeness(a)||b.score-a.score);
+    if(sort==='franchise')items.sort((a,b)=>a.series.name.localeCompare(b.series.name)||a.entry&&b.entry&&a.series.entries.indexOf(a.entry)-b.series.entries.indexOf(b.entry));
+    if(sort==='system')items.sort((a,b)=>displayPlatform(homeSystem(a)).localeCompare(displayPlatform(homeSystem(b)))||(b.score||0)-(a.score||0));
+    const visible=quest.tab==='gaps'?items.slice(0,quest.limit):items;shown=visible.length;
+    html=sort==='franchise'?grouped(visible,i=>i.series.name,(k,list)=>{const st=seriesStatus(list[0].series);return`<button class="qr-series" data-open-series="${enc(k)}">${escapeHtml(k)}</button><span class="muted small">${st.collected}/${st.total} collected</span>`},rowFn)
+      :sort==='system'?grouped(visible,homeSystem,k=>`<span class="sys-dot" style="--family:${familyColor(k)}"></span>${escapeHtml(displayPlatform(k))}`,rowFn)
+      :`<div class="quest-list">${visible.map(rowFn).join('')}</div>`;
+  }
+  const empty={gaps:library.length?'No gaps match. Try another system, or start a new franchise from the Franchises tab.':'Import your library to find gaps in the franchises you own.',franchises:'No franchises match these filters.',hunt:'Your hunt list is empty. Use ＋ Hunt on any missing game to add it here.'}[quest.tab];
+  panel.innerHTML=html||`<div class="empty-state small-empty"><div class="empty-icon">✦</div><p>${empty}</p></div>`;
+  const more=$("#questMore");more.classList.toggle('hidden',shown>=items.length);more.textContent=`Show more (${shown} of ${items.length})`;
+  hydrateArt(panel);
+}
+function renderRecommendations(){
+  const detailOpen=Boolean(SERIES.find(s=>s.name===activeSeriesName));
+  renderQuestStats();renderGoalDetail();
+  $("#questBrowse").classList.toggle('hidden',detailOpen);
+  if(!detailOpen){renderQuestBar();renderQuestPanel()}
+}
+const renderSeriesCatalog=renderRecommendations;
 function copyHuntList(){const text=huntList().map(h=>`☐ ${h.entry.title} — ${h.series.name}${h.platforms.length?` (${h.platforms.map(shortPlatform).join(', ')})`:''}`).join('\n');(navigator.clipboard?.writeText(text)||Promise.reject()).then(()=>toast('Hunt list copied')).catch(()=>{const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([text],{type:'text/plain'}));a.download='checkpoint-hunt-list.txt';a.click();toast('Hunt list downloaded')})}
 function renderAll(){resetSeriesCache();renderPlatforms();renderDashboard();renderLibrary();renderRecommendations()}
 
@@ -235,10 +289,12 @@ document.addEventListener('click',e=>{
   const tab=e.target.closest('[data-status]');if(tab){libraryStatus=tab.dataset.status;libraryVisibleCount=LIBRARY_PAGE_SIZE;renderLibrary();return}
   const series=e.target.closest('[data-open-series]');if(series){activeSeriesName=decodeURIComponent(series.dataset.openSeries);renderSeriesCatalog();renderGoalDetail();$("#goalDetail").scrollIntoView({behavior:'smooth',block:'start'});return}
   const mark=e.target.closest('[data-mark]');if(mark){const v=mark.dataset.mark,t=decodeURIComponent(mark.dataset.entry);setMark(decodeURIComponent(mark.dataset.series),t,v);toast({want:`Added ${t} to your hunt list`,have:`Marked ${t} as collected`,skip:`Skipped ${t}`}[v]||'Updated');return}
-  const sf=e.target.closest('[data-series-filter]');if(sf){seriesFilter=sf.dataset.seriesFilter;renderSeriesCatalog();return}
+  const sf=e.target.closest('[data-series-filter]');if(sf){quest.status=sf.dataset.seriesFilter;saveQuest();renderRecommendations();return}
+  const qt=e.target.closest('[data-quest-tab]');if(qt){quest.tab=qt.dataset.questTab;quest.limit=40;saveQuest();renderRecommendations();return}
+  const qs=e.target.closest('[data-quest-system]');if(qs){quest.system=qs.dataset.questSystem;quest.limit=40;saveQuest();renderRecommendations();return}
   const game=e.target.closest('[data-game]');if(game&&!e.target.closest('dialog'))openGame(game.dataset.game);
 });
-document.addEventListener('keydown',e=>{if((e.key==='Enter'||e.key===' ')&&e.target.matches?.('[data-game][role="button"]')){e.preventDefault();openGame(e.target.dataset.game)}});
+document.addEventListener('keydown',e=>{if((e.key==='Enter'||e.key===' ')&&e.target.matches?.('[role="button"][data-game],[role="button"][data-open-series]')){e.preventDefault();e.target.click()}});
 ['#importButton','#heroImportButton','#libraryImportButton','#emptyImportButton'].forEach(id=>$(id).onclick=triggerImport);
 $("#inventoryInput").onchange=e=>{if(e.target.files[0])importFile(e.target.files[0]);e.target.value=''};
 $("#backupInput").onchange=e=>{if(e.target.files[0])restoreBackup(e.target.files[0]);e.target.value=''};
@@ -248,8 +304,11 @@ function resetLibraryView(){libraryVisibleCount=LIBRARY_PAGE_SIZE;renderLibrary(
 let searchTimer;$("#searchInput").oninput=()=>{clearTimeout(searchTimer);searchTimer=setTimeout(resetLibraryView,120)};
 $("#platformFilter").onchange=resetLibraryView;$("#sortSelect").onchange=resetLibraryView;
 $("#loadMoreButton").onclick=()=>{libraryVisibleCount+=LIBRARY_PAGE_SIZE;renderLibrary()};
-$("#seriesSearch").oninput=renderSeriesCatalog;$("#seriesPlatform").onchange=renderSeriesCatalog;$("#showAllGaps").onclick=()=>{showAllGaps=!showAllGaps;renderGaps()};$("#copyHuntButton").onclick=copyHuntList;
-$("#closeGoalButton").onclick=()=>{activeSeriesName=null;renderSeriesCatalog();renderGoalDetail()};
+let questTimer;$("#questSearch").oninput=()=>{clearTimeout(questTimer);questTimer=setTimeout(()=>{quest.limit=40;renderRecommendations()},150)};
+$("#questSort").onchange=e=>{quest.sort[quest.tab]=e.target.value;saveQuest();renderQuestPanel()};
+$("#questMore").onclick=()=>{quest.limit+=40;renderQuestPanel()};$("#copyHuntButton").onclick=copyHuntList;
+document.addEventListener('change',e=>{if(e.target.id==='questSystemMore'&&e.target.value){quest.system=e.target.value;quest.limit=40;saveQuest();renderRecommendations()}});
+$("#closeGoalButton").onclick=()=>{activeSeriesName=null;renderRecommendations();$("#questBrowse").scrollIntoView({block:"start"})};
 $("#dialogProgress").oninput=e=>$("#progressOutput").value=`${e.target.value}%`;
 $$('input[name="dialogStatus"]').forEach(r=>r.onchange=()=>{if(r.value==='beaten'&&r.checked){$("#dialogProgress").value=100;$("#progressOutput").value='100%'}});
 $("#saveGameButton").onclick=()=>{if(!activeGameId)return;const status=$('input[name="dialogStatus"]:checked')?.value||'backlog';saveState(activeGameId,{...stateFor(activeGameId),status,percent:Number($("#dialogProgress").value),notes:$("#dialogNotes").value.trim()});toast('Game progress saved')};
