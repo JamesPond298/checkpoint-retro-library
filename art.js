@@ -11,7 +11,7 @@
  * whether a box art image exists. Results are cached in localStorage.
  */
 (function () {
-  const INDEX_VERSION = 2;
+  const INDEX_VERSION = 3;
   const CACHE_KEY = "checkpoint.artcache.v1";
   const OVERRIDE_KEY = "checkpoint.art.v1";
   const TYPES = [[1, "Named_Boxarts"], [2, "Named_Titles"], [4, "Named_Snaps"]];
@@ -48,7 +48,7 @@
   const LIGHT = new Set(["of", "a", "an", "and", "to", "in", "on", "version", "edition", "game", "vol", "volume", "no"]);
   const ABBREV = { gta: "grand theft auto", ff: "final fantasy", mgs: "metal gear solid", dbz: "dragon ball z", kof: "king of fighters", smb: "super mario bros", sf: "street fighter", mk: "mortal kombat", thps: "tony hawks pro skater", loz: "legend of zelda", re: "resident evil", ssb: "super smash bros", mvc: "marvel vs capcom", tmnt: "teenage mutant ninja turtles", dkc: "donkey kong country", nfs: "need for speed" };
   const JUNK = new Set(["usa", "eur", "jpn", "pal", "ntsc", "psp", "iso", "rip", "proper", "repack", "multi", "fixed", "eboot", "cso", "decrypted", "nkit"]);
-  const BAD_TAG = /\b(beta|proto|prototype|demo|sample|kiosk|pirate|unl|hack|aftermarket|program|debug|bios|test|alt|homebrew)\b/i;
+  const BAD_TAG = /\b(beta|proto|prototype|demo|sample|kiosk|pirate|unl|hack|aftermarket|program|debug|bios|test|alt|homebrew|bootleg|build|anniversary|plus|virtual console|switch online|collection)\b/i;
 
   const slug = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
   const repo = (s) => s.replace(/ /g, "_");
@@ -76,7 +76,7 @@
       .replace(/[^a-z0-9]+/g, " ");
     const words = s.split(" ").filter(Boolean);
     if (words.length > 1 && ABBREV[words[0]]) words.splice(0, 1, ...ABBREV[words[0]].split(" "));
-    return words.map((t) => ROMAN[t] || t).filter((t) => t !== "the" && !JUNK.has(t));
+    return words.map((t) => ROMAN[t] || (/^0+\d/.test(t) ? String(Number(t)) : t)).filter((t) => t !== "the" && !JUNK.has(t));
   }
   const keyOf = (text) => tokens(text).join("");
 
@@ -170,7 +170,7 @@
     return best;
   }
 
-  function rank(idxList, queries, region, disc, { fuzzyThreshold = 0.78, limit = 1 } = {}) {
+  function rank(idxList, queries, region, disc, { fuzzyThreshold = 0.78, limit = 1, contain = true } = {}) {
     // 1. exact filename hits
     for (const q of queries) {
       for (const idx of idxList) {
@@ -197,12 +197,12 @@
         const pool = new Set(rare.flatMap((t) => idx.byToken.get(t) || []));
         for (const i of pool) {
           const ct = idx.toks[i];
-          if (numbers(ct) !== qn) continue;          // never confuse sequels
-          let sim = weightedDice(qt, ct);
-          if (sim < fuzzyThreshold) {
-            // "LEGO Batman USA PSP-pSyPSP" contains the whole main title of "LEGO Batman - The Videogame"
+          let sim = numbers(ct) === qn ? weightedDice(qt, ct) : 0;   // never confuse sequels
+          if (sim < fuzzyThreshold && contain) {
+            // "LEGO Batman USA PSP-pSyPSP" contains the whole main title of "LEGO Batman - The Videogame";
+            // "Metal Slug" is the main title of "Metal Slug - Super Vehicle-001".
             const main = tokens(idx.names[i].split(" - ")[0]);
-            if (main.length >= 2 && main.every((t) => qt.includes(t))) sim = Math.max(sim, 0.8 + main.length / 100);
+            if (main.length >= 2 && numbers(main) === qn && main.every((t) => qt.includes(t))) sim = Math.max(sim, 0.8 + main.length / 100);
           }
           if (sim < fuzzyThreshold) continue;
           const score = sim * 100 - order * 5 + flagScore(idx, i) + regionScore(idx.names[i], region, disc);
@@ -281,5 +281,21 @@
   function importOverrides(value) { if (value && typeof value === "object") { overrides = { ...overrides, ...value }; writeJSON(OVERRIDE_KEY, overrides); } }
   function forget(gameId) { delete cache[gameId]; persistCache(); }
 
-  window.CheckpointArt = { resolve, resolveTitle, search, urls, setOverride, hideArt, clearOverride, hasOverride, exportOverrides, importOverrides, forget, supports: (p) => Boolean(PLATFORM_SYSTEMS[p]), _test: { tokens, keyOf, rank, indexesFor, queriesFor } };
+  async function refFor(system, name) {
+    const idx = await loadSystem(system);
+    const i = idx?.byExact.get(name.toLowerCase());
+    return i === undefined ? null : asRef({ idx, i });
+  }
+  function cached(gameId) { return gameId in overrides ? overrides[gameId] || 0 : cache[gameId]; }
+  // Resolve many games in the background, yielding to the UI between batches.
+  async function warm(games, onDone) {
+    const todo = games.filter((g) => PLATFORM_SYSTEMS[g.platform] && cached(g.id) === undefined);
+    for (let i = 0; i < todo.length; i += 40) {
+      await Promise.all(todo.slice(i, i + 40).map(resolve));
+      await new Promise((r) => setTimeout(r, 0));
+    }
+    if (todo.length && onDone) onDone(todo.length);
+  }
+
+  window.CheckpointArt = { refFor, cached, warm, keyOf, baseOf, resolve, resolveTitle, search, urls, setOverride, hideArt, clearOverride, hasOverride, exportOverrides, importOverrides, forget, supports: (p) => Boolean(PLATFORM_SYSTEMS[p]), _test: { tokens, keyOf, rank, indexesFor, queriesFor } };
 })();

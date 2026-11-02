@@ -40,7 +40,17 @@ python -m http.server 4173
 
 Then open `http://localhost:4173`.
 
-## Current series catalog
+## Series Quest
 
-Series Quest currently includes 60 structured franchise goals, with broad coverage of Nintendo first-party families and popular collections such as Final Fantasy, Sonic, Mega Man, Castlevania, Resident Evil, LEGO, Street Fighter, Mortal Kombat, Metal Gear, God of War, GTA, Dragon Ball, Bomberman, Pac-Man, Rayman, Tomb Raider, Star Wars, and Naruto. Nintendo goals include Mario, Mario Kart, Mario Party, Mario & Luigi, Paper Mario, Zelda, Metroid, Pokémon and its major spinoffs, Kirby, Donkey Kong, Fire Emblem, Advance Wars, Animal Crossing, Wario, Star Fox, F-Zero, EarthBound, Kid Icarus, Punch-Out!!, Pilotwings, Yoshi, Smash Bros., Rhythm Heaven, and more. Every checklist distinguishes detected games from missing entries and can be filtered by system.
+Series Quest finds the holes in franchises you already play and helps you collect the rest. The catalog (`series-data.js`) covers 110 franchise goals and over 600 games, listed in release order: Nintendo first-party families, Final Fantasy and its Tactics line, Dragon Quest, Mana, Tales, Persona, Kingdom Hearts, Sonic, Mega Man (classic, X, Zero, Battle Network, Legends), Castlevania, Metroid, Zelda (console and handheld), Metal Gear, Resident Evil, Silent Hill, Devil May Cry, Ratchet & Clank, Jak, Sly, Crash, Spyro, Gran Turismo, Ace Combat, arcade fighters (Street Fighter, King of Fighters, Samurai Shodown, Darkstalkers, Marvel vs. Capcom), Metal Slug, Sega classics, and more.
 
+- **Owned games are recognized from messy filenames.** Ownership uses the same normalization as the cover-art matcher, including catalog names, arcade short names and regional retitles (the US SNES "Final Fantasy III" counts as Final Fantasy VI).
+- **Every missing game shows the consoles it was released on**, with the systems you already have highlighted, plus its box art.
+- **Gaps are ranked**: the next game after your newest one first, then earlier entries you skipped, with a boost for nearly complete franchises and systems you already play.
+- **Mark any missing game** as **＋ Hunt** (adds it to your hunt list), **Have it** (you own or finished it elsewhere), or **Skip** (not counted toward the goal). The hunt list has price-check links and can be copied as a checklist. Marks are saved in backups.
+
+`art-index/series-index.json` records which systems each entry appeared on. Regenerate it after editing `series-data.js`:
+
+```bash
+node tools/build_series_index.js
+```

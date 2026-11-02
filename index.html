@@ -97,23 +97,38 @@
 
       <!-- SERIES QUEST -->
       <section class="view" id="recommendationsView" data-view="recommendations">
-        <div class="page-heading"><div><p class="eyebrow">COMPLETE THE JOURNEY</p><h1>Series Quest</h1><p>Suggestions based on gaps in series you already own—not generic advertising.</p></div></div>
-        <div class="series-explainer"><span class="spark">✦</span><div><strong>How this works</strong><p>Checkpoint compares your matched titles with an ordered series catalog. Every suggestion explains the gap, and you can dismiss games you do not want.</p></div></div>
-        <div class="series-toolbar">
-          <label class="search"><span aria-hidden="true">⌕</span><input id="seriesSearch" type="search" placeholder="Find a franchise goal…" aria-label="Find a franchise goal"></label>
-          <select id="seriesPlatform" aria-label="Filter franchise goals by platform"><option value="all">All systems</option></select>
-          <label class="toggle"><input type="checkbox" id="seriesOwnedOnly"> <span>Only series I've started</span></label>
-        </div>
-        <div id="seriesCatalog" class="series-catalog"></div>
+        <div class="page-heading"><div><p class="eyebrow">COMPLETE THE JOURNEY</p><h1>Series Quest</h1><p>Find the holes in the franchises you love, track down the missing games, and play them all.</p></div></div>
+        <div class="stat-grid quest-stats" id="questStats"></div>
+
         <section id="goalDetail" class="goal-detail hidden">
           <button class="text-button" id="closeGoalButton">← All franchise goals</button>
           <div class="goal-heading"><div><p class="eyebrow" id="goalSystem"></p><h2 id="goalTitle"></h2><p id="goalSummary"></p></div><div class="goal-score" id="goalScore"></div></div>
           <div class="progress-track goal-progress"><i id="goalProgressBar"></i></div>
           <div id="goalChecklist" class="goal-checklist"></div>
         </section>
-        <div class="section-heading recommendations-heading"><div><p class="eyebrow">QUICK WINS</p><h2>Gaps detected in your library</h2></div></div>
-        <div id="recommendationList" class="recommendation-list"></div>
-        <div id="recommendationEmpty" class="empty-state"><div class="empty-icon">✦</div><h2>No series gaps found yet</h2><p>Import a library with games from a supported series, or add more games to your collection.</p></div>
+
+        <section class="quest-section hidden" id="huntSection">
+          <div class="section-heading"><div><p class="eyebrow">TRACK THEM DOWN</p><h2>Your hunt list</h2><p class="muted">Games you've decided to collect. Rescan after you add them to your card and they'll be checked off automatically.</p></div><button class="button ghost" id="copyHuntButton">Copy list</button></div>
+          <div class="hunt-list" id="huntList"></div>
+        </section>
+
+        <section class="quest-section">
+          <div class="section-heading"><div><p class="eyebrow">FILL THE GAPS</p><h2>Missing from your franchises</h2><p class="muted" id="gapCount"></p></div></div>
+          <div class="series-explainer"><span class="spark">✦</span><div><strong>How these are ranked</strong><p>The next game after the newest one you have comes first, then earlier entries you skipped. Franchises you're close to finishing and games for systems you already play get a boost. Use <b>＋ Hunt</b> to add one to your hunt list, <b>Have it</b> if you own it elsewhere, or <b>Skip</b> if you're not interested.</p></div></div>
+          <div id="recommendationList" class="recommendation-list"></div>
+          <div class="library-more"><button class="button ghost hidden" id="showAllGaps"></button></div>
+          <div id="recommendationEmpty" class="empty-state"><div class="empty-icon">✦</div><h2>No gaps found yet</h2><p>Once your library has a game from one of the franchises below, its missing entries show up here.</p></div>
+        </section>
+
+        <section class="quest-section">
+          <div class="section-heading"><div><p class="eyebrow">FRANCHISE GOALS</p><h2>Every series we track</h2></div></div>
+          <div class="series-toolbar">
+            <label class="search"><span aria-hidden="true">⌕</span><input id="seriesSearch" type="search" placeholder="Find a franchise or game…" aria-label="Find a franchise or game"></label>
+            <select id="seriesPlatform" aria-label="Filter franchise goals by platform"><option value="all">All systems</option></select>
+          </div>
+          <div class="status-tabs" id="seriesFilters"></div>
+          <div id="seriesCatalog" class="series-catalog"></div>
+        </section>
       </section>
     </main>
     <footer class="site-footer">Box art courtesy of the <a href="https://github.com/libretro-thumbnails/libretro-thumbnails" target="_blank" rel="noopener">Libretro thumbnails project</a>. Your library never leaves this browser.</footer>
@@ -166,6 +181,7 @@
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
   <script src="art.js"></script>
+  <script src="series-data.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
