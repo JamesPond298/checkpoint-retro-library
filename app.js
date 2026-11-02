@@ -77,7 +77,7 @@ let library=read(STORAGE.library,[]),progress=read(STORAGE.progress,{}),dismisse
 const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
 function read(key,fallback){try{return JSON.parse(localStorage.getItem(key))??fallback}catch{return fallback}}
 function write(key,value){localStorage.setItem(key,JSON.stringify(value))}
-function norm(value=""){return value.toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g," ").trim()}
+function norm(value=""){return value.toLowerCase().normalize("NFKD").replace(/([a-z])([0-9])/g,"$1 $2").replace(/([0-9])([a-z])/g,"$1 $2").replace(/[^a-z0-9]+/g," ").trim()}
 function initials(title){return title.split(/\s+/).filter(Boolean).slice(0,3).map(x=>x[0]).join("").toUpperCase()}
 function colorFor(game){let n=[...game.title].reduce((a,c)=>a+c.charCodeAt(0),0);return COLORS[n%COLORS.length]}
 function displayPlatform(code){return PLATFORM_NAMES[code]||code.replaceAll('_',' ')}
