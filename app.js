@@ -73,54 +73,204 @@ const DEMO={format:"checkpoint-inventory",version:1,generatedAt:new Date().toISO
   {id:"demo-zelda",title:"The Legend of Zelda: A Link to the Past",normalizedTitle:"the legend of zelda a link to the past",platform:"SNES",files:[{relativePath:"snes/Zelda - A Link to the Past (USA).sfc"}]},
   {id:"demo-ape",title:"Ape Escape",normalizedTitle:"ape escape",platform:"PS1",files:[{relativePath:"psx/Ape Escape.chd"}]}
 ]};
-let library=read(STORAGE.library,[]),progress=read(STORAGE.progress,{}),dismissed=read(STORAGE.dismissed,[]),activeGameId=null,activeSeriesName=null,libraryVisibleCount=LIBRARY_PAGE_SIZE;
+
+/* ---------------- state ---------------- */
+let library=read(STORAGE.library,[]),progress=read(STORAGE.progress,{}),dismissed=read(STORAGE.dismissed,[]);
+let activeGameId=null,activeSeriesName=null,libraryVisibleCount=LIBRARY_PAGE_SIZE,libraryStatus='all';
 const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
 function read(key,fallback){try{return JSON.parse(localStorage.getItem(key))??fallback}catch{return fallback}}
-function write(key,value){localStorage.setItem(key,JSON.stringify(value))}
+function write(key,value){try{localStorage.setItem(key,JSON.stringify(value))}catch{toast('Could not save — browser storage is full or blocked')}}
 function norm(value=""){return value.toLowerCase().normalize("NFKD").replace(/([a-z])([0-9])/g,"$1 $2").replace(/([0-9])([a-z])/g,"$1 $2").replace(/[^a-z0-9]+/g," ").trim()}
-function initials(title){return title.split(/\s+/).filter(Boolean).slice(0,3).map(x=>x[0]).join("").toUpperCase()}
+function escapeHtml(s=''){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
+function initials(title){return title.replace(/^\d{3}\s+/,'').split(/[\s:-]+/).filter(w=>/^[\p{L}\p{N}]/u.test(w)).slice(0,3).map(x=>x[0]).join("").toUpperCase()}
 function colorFor(game){let n=[...game.title].reduce((a,c)=>a+c.charCodeAt(0),0);return COLORS[n%COLORS.length]}
-function displayPlatform(code){return PLATFORM_NAMES[code]||code.replaceAll('_',' ')}
-const ART_SYSTEMS={NES:["Nintendo - Nintendo Entertainment System"],SNES:["Nintendo - Super Nintendo Entertainment System"],GB:["Nintendo - Game Boy"],GBC:["Nintendo - Game Boy Color"],GBA:["Nintendo - Game Boy Advance"],N64:["Nintendo - Nintendo 64"],NDS:["Nintendo - Nintendo DS"],'3DS':["Nintendo - Nintendo 3DS"],MASTER_SYSTEM:["Sega - Master System - Mark III"],GENESIS:["Sega - Mega Drive - Genesis"],SEGA_CD:["Sega - Mega-CD - Sega CD"],SATURN:["Sega - Saturn"],DREAMCAST:["Sega - Dreamcast"],ARCADE_CPS1:["MAME"],ARCADE_CPS2:["MAME"],ARCADE_CPS3:["MAME"],ARCADE_FBNEO:["MAME"],ARCADE_MAME:["MAME"],NEOGEO:["SNK - Neo Geo"],NGP:["SNK - Neo Geo Pocket","SNK - Neo Geo Pocket Color"],MSX2:["Microsoft - MSX2"],PCENGINE:["NEC - PC Engine - TurboGrafx 16"],WONDERSWAN_COLOR:["Bandai - WonderSwan Color"],PS1:["Sony - PlayStation"],PS2:["Sony - PlayStation 2"],PSP:["Sony - PlayStation Portable"],WII_GC:["Nintendo - GameCube","Nintendo - Wii"]};
-function artSafe(value){return value.replace(/[&*/:`<>?\\|]/g,"_")}
-function coverCandidates(game){const systems=ART_SYSTEMS[game.platform];if(!systems)return[];const file=game.files?.[0]?.filename||game.files?.[0]?.relativePath?.split('/').pop()||'';const stem=file.replace(/(?:\.nkit)?\.[^.]+$/i,'').replace(/\s+(?:Track|trk)\s*\d+$/i,'');const names=[stem,game.title].filter(Boolean).filter((v,i,a)=>a.indexOf(v)===i);return systems.flatMap(system=>names.map(name=>`https://thumbnails.libretro.com/${encodeURIComponent(system)}/Named_Boxarts/${encodeURIComponent(artSafe(name))}.png`))}
-function coverArt(game){const candidates=coverCandidates(game);return candidates.length?`<img class="cover-art" alt="" src="${candidates[0]}" data-candidates="${encodeURIComponent(JSON.stringify(candidates))}" data-index="0">`:''}
-function bindArt(){$$('img[data-candidates]').forEach(img=>img.onerror=()=>{const list=JSON.parse(decodeURIComponent(img.dataset.candidates));const next=Number(img.dataset.index)+1;if(next<list.length){img.dataset.index=next;img.src=list[next]}else img.hidden=true})}
-function stateFor(id){return progress[id]||{status:"backlog",percent:0,notes:""}}
-function saveState(id,state){progress[id]=state;write(STORAGE.progress,progress);renderAll()}
+function displayPlatform(code){return PLATFORM_NAMES[code]||String(code).replaceAll('_',' ')}
+const SHORT_NAMES={NES:"NES",SNES:"SNES",GB:"Game Boy",GBC:"GBC",GBA:"GBA",N64:"N64",NDS:"DS",'3DS':"3DS",MASTER_SYSTEM:"Master System",GENESIS:"Genesis",SEGA_CD:"Sega CD",SATURN:"Saturn",DREAMCAST:"Dreamcast",ARCADE_CPS1:"CPS-1",ARCADE_CPS2:"CPS-2",ARCADE_CPS3:"CPS-3",ARCADE_FBNEO:"FBNeo",ARCADE_MAME:"MAME",NEOGEO:"Neo Geo",NGP:"NGP",OPENBOR:"OpenBOR",MSX2:"MSX2",PCENGINE:"PC Engine",WONDERSWAN_COLOR:"WonderSwan",PS1:"PS1",PS2:"PS2",PS3:"PS3",PSP:"PSP",WII_GC:"Wii / GC"};
+const shortPlatform=code=>SHORT_NAMES[code]||displayPlatform(code);
+const FAMILY={nintendo:["NES","SNES","GB","GBC","GBA","N64","NDS","3DS","WII_GC"],sega:["MASTER_SYSTEM","GENESIS","SEGA_CD","SATURN","DREAMCAST"],sony:["PS1","PS2","PS3","PSP"],arcade:["ARCADE_CPS1","ARCADE_CPS2","ARCADE_CPS3","ARCADE_FBNEO","ARCADE_MAME","NEOGEO","NGP"]};
+const FAMILY_COLORS={nintendo:"#ff5d6c",sega:"#4f9dff",sony:"#9d8cff",arcade:"#ffb547",other:"#51f0b1"};
+function familyColor(code){const f=Object.keys(FAMILY).find(k=>FAMILY[k].includes(code));return FAMILY_COLORS[f||'other']}
+const STATUS_LABEL={backlog:'Backlog',playing:'Playing','on-hold':'On hold',beaten:'Beaten'};
+function stateFor(id){return{status:"backlog",percent:0,notes:"",...(progress[id]||{})}}
+function saveState(id,state){progress[id]={...state,updatedAt:new Date().toISOString()};write(STORAGE.progress,progress);renderAll()}
+const byId=id=>library.find(g=>g.id===id);
 function toast(message){const el=$("#toast");el.textContent=message;el.classList.add("show");clearTimeout(toast.timer);toast.timer=setTimeout(()=>el.classList.remove("show"),2600)}
-function route(name){$$('.view').forEach(v=>v.classList.toggle('active',v.dataset.view===name));$$('[data-route]').forEach(b=>b.classList.toggle('active',b.classList.contains('nav-button')&&b.dataset.route===name));window.scrollTo({top:0,behavior:'smooth'});if(name==='library')renderLibrary();if(name==='recommendations')renderRecommendations()}
+function fileOf(game){return game.files?.[0]?.relativePath||game.files?.[0]?.filename||''}
+
+/* ---------------- cover art ---------------- */
+const loadedArt=new Map();   // key -> {src, contain}
+const artObserver='IntersectionObserver' in window?new IntersectionObserver(entries=>{for(const e of entries)if(e.isIntersecting){artObserver.unobserve(e.target);loadArt(e.target)}},{rootMargin:'900px 0px'}):null;
+function artKey(el){return el.dataset.artGame?`g:${el.dataset.artGame}`:`t:${el.dataset.artPlatforms}|${el.dataset.artTitle}`}
+function coverInner(title,platform,key){const known=key&&loadedArt.get(key);return`${known?`<img class="art" alt="" src="${escapeHtml(known.src)}">`:''}<div class="cover-fallback"><span class="fallback-system">${escapeHtml(shortPlatform(platform))}</span><b>${escapeHtml(initials(title))}</b><span class="fallback-title">${escapeHtml(title)}</span></div>`}
+function knownAttrs(key){const known=loadedArt.get(key);return known?` has-art${known.contain?' fit-contain':''}" data-art-bound="1" style="--art:url(&quot;${escapeHtml(known.src)}&quot;);`:'" style="'}
+function cover(game,cls=''){const key=`g:${game.id}`;return`<div class="cover ${cls}${knownAttrs(key)}--cover:${colorFor(game)};--family:${familyColor(game.platform)}" data-art-game="${escapeHtml(game.id)}">${coverInner(game.title,game.platform,key)}</div>`}
+function titleCover(title,platforms,cls=''){const p=platforms.join(','),key=`t:${p}|${title}`;return`<div class="cover ${cls}${knownAttrs(key)}--cover:${COLORS[title.length%COLORS.length]};--family:${familyColor(platforms[0])}" data-art-title="${escapeHtml(title)}" data-art-platforms="${escapeHtml(p)}">${coverInner(title,platforms[0],key)}</div>`}
+function hydrateArt(root=document){root.querySelectorAll('[data-art-game]:not([data-art-bound]),[data-art-title]:not([data-art-bound])').forEach(el=>{el.dataset.artBound='1';artObserver?artObserver.observe(el):loadArt(el)})}
+async function loadArt(el){
+  let ref=null;
+  try{
+    if(el.dataset.artGame){const g=byId(el.dataset.artGame);if(!g)return;ref=await CheckpointArt.resolve(g)}
+    else ref=await CheckpointArt.resolveTitle(el.dataset.artTitle,el.dataset.artPlatforms.split(','));
+  }catch{ref=null}
+  if(!ref){el.classList.add('no-art');return}
+  showArt(el,CheckpointArt.urls(ref),artKey(el));
+}
+function showArt(el,urls,key){
+  const img=new Image();img.alt='';img.className='art';img.decoding='async';let i=0;
+  img.onerror=()=>{if(++i<urls.length)img.src=urls[i];else{img.remove();el.classList.add('no-art')}};
+  img.onload=()=>{const ratio=img.naturalWidth/img.naturalHeight,box=(el.clientWidth/el.clientHeight)||.75,contain=Math.abs(ratio-box)/box>.16;
+    el.style.setProperty('--art',`url("${img.src}")`);el.classList.toggle('fit-contain',contain);el.classList.add('has-art');if(key)loadedArt.set(key,{src:img.src,contain})};
+  img.src=urls[0];el.prepend(img);
+}
+
+/* ---------------- routing ---------------- */
+function route(name,{scroll=true}={}){if(!['dashboard','library','recommendations'].includes(name))name='dashboard';$$('.view').forEach(v=>v.classList.toggle('active',v.dataset.view===name));$$('.nav-button').forEach(b=>b.classList.toggle('active',b.dataset.route===name));if(location.hash!==`#${name}`)history.replaceState(null,'',`#${name}`);if(scroll)window.scrollTo({top:0,behavior:'smooth'});if(name==='library')renderLibrary();if(name==='recommendations')renderRecommendations()}
+
+/* ---------------- import / export ---------------- */
 function validateInventory(data){if(!data||data.format!=="checkpoint-inventory"||!Number.isInteger(data.version)||!Array.isArray(data.games))throw new Error("This is not a supported Checkpoint inventory file.");if(data.version!==1)throw new Error(`Inventory version ${data.version} is not supported yet.`);return data}
-function mergeInventory(data){validateInventory(data);const old=new Map(library.map(g=>[g.id,g]));let added=0;for(const raw of data.games){if(!raw.title||!raw.platform)continue;const fallback=`${raw.platform}:${norm(raw.normalizedTitle||raw.title)}`;let game={...raw,id:raw.id||fallback,normalizedTitle:raw.normalizedTitle||norm(raw.title),importedAt:new Date().toISOString()};if(old.has(game.id))game={...old.get(game.id),...game,importedAt:old.get(game.id).importedAt||game.importedAt};else added++;old.set(game.id,game)}library=[...old.values()];libraryVisibleCount=LIBRARY_PAGE_SIZE;write(STORAGE.library,library);renderAll();toast(`${added} new game${added===1?'':'s'} added • ${library.length} total`);route('dashboard')}
+function mergeInventory(data){validateInventory(data);const old=new Map(library.map(g=>[g.id,g]));let added=0;const now=new Date().toISOString();for(const raw of data.games){if(!raw.title||!raw.platform)continue;const fallback=`${raw.platform}:${norm(raw.normalizedTitle||raw.title)}`;let game={...raw,id:raw.id||fallback,normalizedTitle:raw.normalizedTitle||norm(raw.title),importedAt:now};if(old.has(game.id)){const prev=old.get(game.id);if(fileOf(prev)!==fileOf(game))CheckpointArt.forget(game.id);game={...prev,...game,importedAt:prev.importedAt||now}}else added++;old.set(game.id,game)}library=[...old.values()];libraryVisibleCount=LIBRARY_PAGE_SIZE;write(STORAGE.library,library);renderAll();toast(`${added} new game${added===1?'':'s'} added • ${library.length} total`);route('dashboard')}
 async function importFile(file){try{mergeInventory(JSON.parse(await file.text()))}catch(error){toast(error.message)}}
+function exportBackup(){const blob=new Blob([JSON.stringify({format:'checkpoint-backup',version:1,exportedAt:new Date().toISOString(),library,progress,dismissed,art:CheckpointArt.exportOverrides()},null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='checkpoint-backup.json';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);toast('Backup downloaded')}
+async function restoreBackup(file){try{const data=JSON.parse(await file.text());if(data?.format!=='checkpoint-backup'||!Array.isArray(data.library))throw new Error('This is not a Checkpoint backup file.');if(!confirm(`Replace this browser's library with the backup (${data.library.length} games)?`))return;library=data.library;progress=data.progress||{};dismissed=data.dismissed||[];CheckpointArt.importOverrides(data.art);write(STORAGE.library,library);write(STORAGE.progress,progress);write(STORAGE.dismissed,dismissed);loadedArt.clear();renderAll();toast('Backup restored');route('dashboard')}catch(error){toast(error.message)}}
 function triggerImport(){$("#inventoryInput").click()}
-function stats(){const values=Object.values(progress);return{total:library.length,playing:library.filter(g=>stateFor(g.id).status==='playing').length,beaten:library.filter(g=>stateFor(g.id).status==='beaten').length,systems:new Set(library.map(g=>g.platform)).size}}
-function ownedGame(entry,series){const aliases=entry.aliases.map(norm);return library.find(game=>series.systems.includes(game.platform)&&aliases.includes(norm(game.normalizedTitle||game.title)))}
+
+/* ---------------- series logic ---------------- */
+let ownedIndex=null;
+function buildOwnedIndex(){ownedIndex=new Map();for(const g of library){const k=norm(g.normalizedTitle||g.title);if(!ownedIndex.has(k))ownedIndex.set(k,[]);ownedIndex.get(k).push(g)}}
+function ownedGame(entry,series){if(!ownedIndex)buildOwnedIndex();for(const alias of entry.aliases){const hit=(ownedIndex.get(norm(alias))||[]).find(g=>series.systems.includes(g.platform));if(hit)return hit}return null}
 function seriesStatus(series){const owned=series.entries.map(entry=>ownedGame(entry,series)).filter(Boolean);return{owned,total:series.entries.length,percent:Math.round(owned.length/series.entries.length*100)}}
-function recommendations(){const out=[];for(const series of SERIES){const indexes=[];series.entries.forEach((entry,i)=>{if(ownedGame(entry,series))indexes.push(i)});if(!indexes.length)continue;const highest=Math.max(...indexes);for(let i=0;i<highest;i++){const entry=series.entries[i],key=`${series.name}:${entry.title}`;if(!ownedGame(entry,series)&&!dismissed.includes(key))out.push({key,title:entry.title,series:series.name,reason:`Fills the gap before ${series.entries[highest].title}`,kind:'earlier'})}const next=series.entries[highest+1];if(next){const key=`${series.name}:${next.title}`;if(!dismissed.includes(key))out.push({key,title:next.title,series:series.name,reason:`Continues after ${series.entries[highest].title}`,kind:'next'})}}return out}
-function renderDashboard(){const has=library.length>0;$("#dashboardContent").classList.toggle('hidden',!has);$('.hero').classList.toggle('hidden',has);if(!has)return;const s=stats();$("#stats").innerHTML=[[s.total,'Games owned','Inventory'],[s.playing,'Playing now','Keep going'],[s.beaten,'Games beaten','Finished'],[s.systems,'Systems','Detected']].map(([n,l,e])=>`<div class="stat"><span>${l}</span><strong>${n}</strong><em>${e}</em></div>`).join('');const playing=library.find(g=>stateFor(g.id).status==='playing')||library[0],ps=stateFor(playing.id);$("#continuePlaying").innerHTML=`<div class="continue-card" data-game="${playing.id}"><div class="mini-cover" style="--cover:${colorFor(playing)}">${initials(playing.title)}${coverArt(playing)}</div><div><h4>${escapeHtml(playing.title)}</h4><span class="muted">${escapeHtml(displayPlatform(playing.platform))} • ${ps.status==='backlog'?'Ready to start':ps.status}</span><div class="progress-track"><i style="width:${ps.percent}%"></i></div></div><strong>${ps.percent}%</strong></div>`;const rec=recommendations()[0];$("#recommendationPreview").innerHTML=rec?`<div class="rec-preview"><p class="eyebrow">${rec.series}</p><strong>${escapeHtml(rec.title)}</strong><p>${escapeHtml(rec.reason)}. You can dismiss any suggestion that does not fit your goals.</p></div>`:`<div class="rec-preview"><strong>Your known series are caught up.</strong><p>Add more games or import another scan to uncover new paths.</p></div>`;$("#recentGames").innerHTML=library.slice(-6).reverse().map(miniGame).join('');bindArt();bindGameClicks()}
-function miniGame(g){return`<div class="mini-game" data-game="${g.id}"><div class="cover" style="--cover:${colorFor(g)}">${initials(g.title)}${coverArt(g)}</div><b>${escapeHtml(g.title)}</b><small>${escapeHtml(displayPlatform(g.platform))}</small></div>`}
-function renderLibrary(){const q=norm($("#searchInput").value),platform=$("#platformFilter").value,status=$("#statusFilter").value;const filtered=library.filter(g=>(!q||norm(g.title).includes(q))&&(platform==='all'||g.platform===platform)&&(status==='all'||stateFor(g.id).status===status));const visible=filtered.slice(0,libraryVisibleCount);$("#librarySubtitle").textContent=library.length?`${library.length} games across ${new Set(library.map(g=>g.platform)).size} systems${filtered.length!==library.length?` • ${filtered.length} match the current filters`:''}`:'Import your scanner inventory to begin.';$("#libraryGrid").innerHTML=visible.map(g=>{const s=stateFor(g.id),label=displayPlatform(g.platform);return`<article class="game-card" data-game="${g.id}"><div class="cover" style="--cover:${colorFor(g)}"><span class="platform-tag">${escapeHtml(label)}</span><span class="status-dot ${s.status}"></span>${initials(g.title)}${coverArt(g)}</div><div class="game-info"><h3>${escapeHtml(g.title)}</h3><p>${s.status.replace('-',' ')}</p><div class="progress-track"><i style="width:${s.percent}%"></i></div></div></article>`}).join('');const more=$("#loadMoreButton");more.classList.toggle('hidden',visible.length>=filtered.length);more.textContent=`Show more games (${visible.length} of ${filtered.length})`;$("#libraryEmpty").classList.toggle('hidden',library.length>0);bindArt();bindGameClicks()}
-function renderPlatforms(){const current=$("#platformFilter").value;const systems=[...new Set(library.map(g=>g.platform))].sort((a,b)=>displayPlatform(a).localeCompare(displayPlatform(b)));$("#platformFilter").innerHTML='<option value="all">All platforms</option>'+systems.map(p=>`<option value="${p}">${escapeHtml(displayPlatform(p))}</option>`).join('');$("#platformFilter").value=[...$("#platformFilter").options].some(o=>o.value===current)?current:'all'}
+function seriesArtPlatforms(series){const mine=[...new Set(seriesStatus(series).owned.map(g=>g.platform))];return mine.length?mine:series.systems.slice(0,1)}
+function recommendations(){const out=[];for(const series of SERIES){const indexes=[];series.entries.forEach((entry,i)=>{if(ownedGame(entry,series))indexes.push(i)});if(!indexes.length)continue;const highest=Math.max(...indexes);for(let i=0;i<highest;i++){const entry=series.entries[i],key=`${series.name}:${entry.title}`;if(!ownedGame(entry,series)&&!dismissed.includes(key))out.push({key,title:entry.title,series,reason:`Fills the gap before ${series.entries[highest].title}`,kind:'earlier'})}const next=series.entries[highest+1];if(next){const key=`${series.name}:${next.title}`;if(!dismissed.includes(key))out.push({key,title:next.title,series,reason:`Continues after ${series.entries[highest].title}`,kind:'next'})}}return out}
+
+/* ---------------- dashboard ---------------- */
+const HERO_ART=[["Nintendo - Super Nintendo Entertainment System","Chrono Trigger (USA)"],["Sony - PlayStation","Final Fantasy VII (USA) (Disc 1)"],["Nintendo - Nintendo 64","Legend of Zelda, The - Ocarina of Time (USA)"],["Sega - Mega Drive - Genesis","Sonic The Hedgehog 2 (World)"],["Nintendo - Game Boy Advance","Pokemon - Emerald Version (USA, Europe)"],["Sony - PlayStation","Castlevania - Symphony of the Night (USA)"],["Nintendo - Super Nintendo Entertainment System","Super Metroid (Japan, USA) (En,Ja)"],["Nintendo - Nintendo Entertainment System","Mega Man 2 (USA)"]];
+function renderHero(){const shelf=$("#heroShelf");if(shelf.childElementCount)return;shelf.innerHTML=HERO_ART.map((_,i)=>`<div class="hero-box" style="left:${4+(i%4)*23}%;top:${6+Math.floor(i/4)*46+(i%2)*6}%;--tilt:${((i%3)-1)*3}deg;animation-delay:${-i*.9}s"></div>`).join('');$$('.hero-box').forEach((el,i)=>{const [system,name]=HERO_ART[i];showArt(el,CheckpointArt.urls({system,name,type:'Named_Boxarts'}))})}
+function spotlightGame(){const recent=g=>progress[g.id]?.updatedAt||'';const by=s=>library.filter(g=>stateFor(g.id).status===s).sort((a,b)=>recent(b).localeCompare(recent(a)));const playing=by('playing');if(playing.length)return{game:playing[0],kind:'playing'};const held=by('on-hold');if(held.length)return{game:held[0],kind:'on-hold'};const backlog=by('backlog');if(!backlog.length)return{game:library[0],kind:'done'};const day=Math.floor(Date.now()/864e5);return{game:backlog[day%backlog.length],kind:'pick'}}
+function guideUrls(game){const q=`${game.title} ${displayPlatform(game.platform)}`;return{web:`https://www.google.com/search?q=${encodeURIComponent(q+' walkthrough guide')}`,faqs:`https://gamefaqs.gamespot.com/search?game=${encodeURIComponent(game.title)}`,video:`https://www.youtube.com/results?search_query=${encodeURIComponent(q+' walkthrough')}`}}
+function renderDashboard(){
+  const has=library.length>0;$("#dashboardContent").classList.toggle('hidden',!has);$('.hero').classList.toggle('hidden',has);
+  if(!has){renderHero();return}
+  const {game,kind}=spotlightGame(),s=stateFor(game.id),eyebrow={playing:'CONTINUE PLAYING','on-hold':'WAITING FOR YOU',pick:"TODAY'S PICK FROM YOUR BACKLOG",done:'YOUR COLLECTION'}[kind];
+  $("#spotlight").innerHTML=`<div class="spotlight-backdrop" data-backdrop="${escapeHtml(game.id)}"></div><div class="spotlight-inner">${cover(game,'spotlight-cover')}<div class="spotlight-copy"><p class="eyebrow">${eyebrow}</p><h2>${escapeHtml(game.title)}</h2><p class="muted"><span class="sys-dot" style="--family:${familyColor(game.platform)}"></span>${escapeHtml(displayPlatform(game.platform))} · ${STATUS_LABEL[s.status]}</p>${s.notes?`<blockquote class="spotlight-notes">${escapeHtml(s.notes.length>220?s.notes.slice(0,220)+'…':s.notes)}</blockquote>`:kind==='pick'?'<p class="spotlight-hint">Nothing in progress — how about starting this one?</p>':''}<div class="spotlight-progress"><div class="progress-track"><i style="width:${s.percent}%"></i></div><strong>${s.percent}%</strong></div><div class="spotlight-actions"><button class="button primary" data-game="${escapeHtml(game.id)}">${kind==='pick'?'Start playing':'Update progress'}</button><a class="button ghost" href="${guideUrls(game).web}" target="_blank" rel="noopener">Find a guide ↗</a></div></div></div>`;
+  const total=library.length,count=st=>library.filter(g=>stateFor(g.id).status===st).length,playing=count('playing'),beaten=count('beaten'),systems=new Set(library.map(g=>g.platform)).size;
+  $("#stats").innerHTML=[[total.toLocaleString(),'Games owned','across '+systems+' systems'],[playing,'Playing now',playing?'keep going':'pick one up'],[beaten,'Games beaten',total?`${(beaten/total*100).toFixed(beaten/total<.1?1:0)}% of library`:''],[recommendations().length,'Series gaps','in Series Quest']].map(([n,l,e])=>`<div class="stat"><span>${l}</span><strong>${n}</strong><em>${e}</em></div>`).join('');
+  const queue=library.filter(g=>g.id!==game.id&&['playing','on-hold'].includes(stateFor(g.id).status));
+  $("#upNextSection").classList.toggle('hidden',!queue.length);$("#upNext").innerHTML=queue.slice(0,14).map(shelfGame).join('');
+  const counts=new Map();library.forEach(g=>counts.set(g.platform,(counts.get(g.platform)||0)+1));
+  $("#systemCount").textContent=`${counts.size} detected`;
+  $("#platformChips").innerHTML=[...counts].sort((a,b)=>b[1]-a[1]).map(([p,n])=>`<button class="platform-chip" data-platform-link="${escapeHtml(p)}" style="--family:${familyColor(p)}"><span class="sys-dot"></span>${escapeHtml(shortPlatform(p))}<b>${n.toLocaleString()}</b></button>`).join('');
+  const recs=recommendations().slice(0,3);
+  $("#recommendationPreview").innerHTML=recs.length?recs.map(r=>`<div class="rec-mini">${titleCover(r.title,seriesArtPlatforms(r.series),'mini')}<div><p class="eyebrow">${escapeHtml(r.series.name)}</p><strong>${escapeHtml(r.title)}</strong><p class="muted small">${escapeHtml(r.reason)}</p></div></div>`).join(''):`<div class="rec-preview"><strong>Your known series are caught up.</strong><p class="muted">Add more games or import another scan to uncover new paths.</p></div>`;
+  const recent=[...library].map((g,i)=>[g,i]).sort((a,b)=>(b[0].importedAt||'').localeCompare(a[0].importedAt||'')||b[1]-a[1]).slice(0,16).map(x=>x[0]);
+  $("#recentGames").innerHTML=recent.map(shelfGame).join('');
+  hydrateArt($("#dashboardView"));
+  const bd=$('[data-backdrop]');const k=`g:${game.id}`;const applyBackdrop=()=>{const a=loadedArt.get(k);if(a)bd.style.backgroundImage=`url("${a.src}")`};applyBackdrop();if(!loadedArt.has(k))CheckpointArt.resolve(game).then(ref=>{if(ref)bd.style.backgroundImage=`url("${CheckpointArt.urls(ref)[0]}")`});
+}
+function shelfGame(g){const s=stateFor(g.id);return`<div class="shelf-game" data-game="${escapeHtml(g.id)}" tabindex="0" role="button" aria-label="${escapeHtml(g.title)}">${cover(g)}${s.percent?`<div class="cover-progress"><i style="width:${s.percent}%"></i></div>`:''}<b>${escapeHtml(g.title)}</b><small>${escapeHtml(shortPlatform(g.platform))}</small></div>`}
+
+/* ---------------- library ---------------- */
+const searchText=new WeakMap();
+function haystack(g){if(!searchText.has(g))searchText.set(g,norm(`${g.title} ${fileOf(g).split('/').pop()}`));return searchText.get(g)}
+function renderStatusTabs(base){const counts={all:base.length};base.forEach(g=>{const s=stateFor(g.id).status;counts[s]=(counts[s]||0)+1});$("#statusTabs").innerHTML=[['all','All'],['playing','Playing'],['backlog','Backlog'],['on-hold','On hold'],['beaten','Beaten']].map(([v,l])=>`<button role="tab" class="status-tab ${v}${libraryStatus===v?' active':''}" aria-selected="${libraryStatus===v}" data-status="${v}">${l}<b>${(counts[v]||0).toLocaleString()}</b></button>`).join('')}
+function renderLibrary(){
+  const q=norm($("#searchInput").value),platform=$("#platformFilter").value,sort=$("#sortSelect").value;
+  const base=library.filter(g=>(!q||haystack(g).includes(q))&&(platform==='all'||g.platform===platform));
+  renderStatusTabs(base);
+  const filtered=base.filter(g=>libraryStatus==='all'||stateFor(g.id).status===libraryStatus);
+  const order=new Map(library.map((g,i)=>[g.id,i]));
+  const sorters={title:(a,b)=>a.title.localeCompare(b.title),recent:(a,b)=>(b.importedAt||'').localeCompare(a.importedAt||'')||order.get(b.id)-order.get(a.id),progress:(a,b)=>stateFor(b.id).percent-stateFor(a.id).percent||a.title.localeCompare(b.title),platform:(a,b)=>shortPlatform(a.platform).localeCompare(shortPlatform(b.platform))||a.title.localeCompare(b.title)};
+  filtered.sort(sorters[sort]||sorters.title);
+  const visible=filtered.slice(0,libraryVisibleCount);
+  $("#librarySubtitle").textContent=library.length?`${library.length.toLocaleString()} games across ${new Set(library.map(g=>g.platform)).size} systems${filtered.length!==library.length?` · ${filtered.length.toLocaleString()} shown`:''}`:'Import your scanner inventory to begin.';
+  $("#libraryGrid").innerHTML=visible.map(g=>{const s=stateFor(g.id);return`<article class="game-card" data-game="${escapeHtml(g.id)}" tabindex="0" role="button" aria-label="${escapeHtml(g.title)}">${cover(g)}${s.status!=='backlog'?`<span class="status-badge ${s.status}">${STATUS_LABEL[s.status]}</span>`:''}${s.percent?`<div class="cover-progress"><i style="width:${s.percent}%"></i></div>`:''}<div class="game-info"><h3 title="${escapeHtml(g.title)}">${escapeHtml(g.title)}</h3><p><span class="sys-dot" style="--family:${familyColor(g.platform)}"></span>${escapeHtml(shortPlatform(g.platform))}</p></div></article>`}).join('');
+  $("#libraryGrid").classList.toggle('hidden',!library.length);
+  if(library.length&&!filtered.length)$("#libraryGrid").innerHTML=`<p class="no-results">No games match these filters.</p>`;
+  const more=$("#loadMoreButton");more.classList.toggle('hidden',visible.length>=filtered.length);more.textContent=`Show more games (${visible.length.toLocaleString()} of ${filtered.length.toLocaleString()})`;
+  $("#libraryEmpty").classList.toggle('hidden',library.length>0);$("#statusTabs").classList.toggle('hidden',!library.length);
+  hydrateArt($("#libraryGrid"));
+}
+function renderPlatforms(){const current=$("#platformFilter").value;const systems=[...new Set(library.map(g=>g.platform))].sort((a,b)=>displayPlatform(a).localeCompare(displayPlatform(b)));$("#platformFilter").innerHTML='<option value="all">All platforms</option>'+systems.map(p=>`<option value="${escapeHtml(p)}">${escapeHtml(displayPlatform(p))}</option>`).join('');$("#platformFilter").value=systems.includes(current)?current:'all'}
+
+/* ---------------- series quest ---------------- */
 function renderSeriesFilters(){const current=$("#seriesPlatform").value;const systems=[...new Set(SERIES.flatMap(s=>s.systems))].sort((a,b)=>displayPlatform(a).localeCompare(displayPlatform(b)));$("#seriesPlatform").innerHTML='<option value="all">All systems</option>'+systems.map(s=>`<option value="${s}">${escapeHtml(displayPlatform(s))}</option>`).join('');$("#seriesPlatform").value=systems.includes(current)?current:'all'}
-function renderSeriesCatalog(){const q=norm($("#seriesSearch").value),platform=$("#seriesPlatform").value;const catalog=SERIES.filter(s=>(!q||norm(s.name).includes(q))&&(platform==='all'||s.systems.includes(platform)));$("#seriesCatalog").classList.toggle('hidden',Boolean(activeSeriesName));$(".series-toolbar").classList.toggle('hidden',Boolean(activeSeriesName));$("#seriesCatalog").innerHTML=catalog.map(series=>{const status=seriesStatus(series),missing=status.total-status.owned.length;return`<article class="series-card"><div class="series-card-top"><div class="rec-icon">${initials(series.name)}</div><div><h3>${escapeHtml(series.name)}</h3><p>${series.systems.map(displayPlatform).join(' • ')}</p></div></div><div class="progress-track"><i style="width:${status.percent}%"></i></div><div class="series-count"><span>${status.owned.length} of ${status.total} owned</span><strong>${missing?`${missing} missing`:'Complete!'}</strong></div><button class="button ghost full" data-open-series="${encodeURIComponent(series.name)}">View checklist</button></article>`}).join('');$$('[data-open-series]').forEach(button=>button.onclick=()=>{activeSeriesName=decodeURIComponent(button.dataset.openSeries);renderSeriesCatalog();renderGoalDetail()})}
-function renderGoalDetail(){const series=SERIES.find(s=>s.name===activeSeriesName),detail=$("#goalDetail");detail.classList.toggle('hidden',!series);if(!series)return;const status=seriesStatus(series);$("#goalSystem").textContent=series.systems.map(displayPlatform).join(' • ');$("#goalTitle").textContent=series.name;$("#goalSummary").textContent=status.owned.length===status.total?'You have every cataloged game in this goal.':`${status.total-status.owned.length} games are still missing from this collection goal.`;$("#goalScore").innerHTML=`<strong>${status.owned.length}/${status.total}</strong><span>owned</span>`;$("#goalProgressBar").style.width=`${status.percent}%`;$("#goalChecklist").innerHTML=series.entries.map((entry,index)=>{const game=ownedGame(entry,series),state=game?stateFor(game.id):null;return`<article class="goal-row ${game?'owned':'missing'}"><span class="goal-check">${game?'✓':'○'}</span><div><strong>${index+1}. ${escapeHtml(entry.title)}</strong><p>${game?`${escapeHtml(displayPlatform(game.platform))} • ${state.status.replace('-',' ')}`:'Not detected in your library'}</p></div>${game?`<button class="text-button" data-game="${game.id}">Open</button>`:'<span class="missing-label">Missing</span>'}</article>`}).join('');bindGameClicks()}
-function renderRecommendations(){renderSeriesFilters();renderSeriesCatalog();renderGoalDetail();const recs=recommendations();$("#recommendationList").innerHTML=recs.slice(0,12).map(r=>`<article class="recommendation-card"><div class="rec-icon">${r.kind==='earlier'?'↶':'→'}</div><div><p class="eyebrow">${r.series}</p><h3>${escapeHtml(r.title)}</h3><p>${escapeHtml(r.reason)}</p><div class="reason">Why: you own another entry in this series</div></div><button class="dismiss" data-dismiss="${escapeHtml(r.key)}">Dismiss</button></article>`).join('');$("#recommendationEmpty").classList.toggle('hidden',recs.length>0);$$('[data-dismiss]').forEach(b=>b.onclick=()=>{dismissed.push(b.dataset.dismiss);write(STORAGE.dismissed,dismissed);renderAll();toast('Suggestion dismissed')})}
-function renderAll(){renderPlatforms();renderDashboard();renderLibrary();renderRecommendations()}
-function bindGameClicks(){$$('[data-game]').forEach(el=>el.onclick=()=>openGame(el.dataset.game))}
-function openGame(id){const game=library.find(g=>g.id===id);if(!game)return;activeGameId=id;const s=stateFor(id);$("#dialogPlatform").textContent=displayPlatform(game.platform);$("#dialogTitle").textContent=game.title;$("#dialogPath").textContent=game.files?.[0]?.relativePath||'Imported game';$("#dialogStatus").value=s.status;$("#dialogProgress").value=s.percent;$("#progressOutput").value=`${s.percent}%`;$("#dialogNotes").value=s.notes;$("#guideLink").href=`https://www.google.com/search?q=${encodeURIComponent(game.title+' '+displayPlatform(game.platform)+' walkthrough guide')}`;$("#gameDialog").showModal()}
-function exportBackup(){const blob=new Blob([JSON.stringify({format:'checkpoint-backup',version:1,exportedAt:new Date().toISOString(),library,progress,dismissed},null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='checkpoint-backup.json';a.click();URL.revokeObjectURL(a.href);toast('Backup downloaded')}
-function escapeHtml(s=''){return s.replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
-$$('[data-route]').forEach(b=>b.addEventListener('click',()=>route(b.dataset.route)));
+function renderSeriesCatalog(){
+  const q=norm($("#seriesSearch").value),platform=$("#seriesPlatform").value,startedOnly=$("#seriesOwnedOnly").checked;
+  const catalog=SERIES.map(series=>({series,status:seriesStatus(series)})).filter(({series,status})=>(!q||norm(series.name).includes(q))&&(platform==='all'||series.systems.includes(platform))&&(!startedOnly||status.owned.length)).sort((a,b)=>(b.status.owned.length>0)-(a.status.owned.length>0)||b.status.percent-a.status.percent);
+  $("#seriesCatalog").classList.toggle('hidden',Boolean(activeSeriesName));$(".series-toolbar").classList.toggle('hidden',Boolean(activeSeriesName));
+  $("#seriesCatalog").innerHTML=catalog.length?catalog.map(({series,status})=>{const missing=status.total-status.owned.length,stack=status.owned.slice(0,4);return`<article class="series-card${status.owned.length?' started':''}"><div class="series-stack">${stack.length?stack.map(g=>cover(g,'stack')).join(''):`<div class="rec-icon">${escapeHtml(initials(series.name))}</div>`}</div><h3>${escapeHtml(series.name)}</h3><p class="series-systems">${series.systems.map(shortPlatform).join(' · ')}</p><div class="progress-track"><i style="width:${status.percent}%"></i></div><div class="series-count"><span>${status.owned.length} of ${status.total} owned</span><strong>${missing?`${missing} missing`:'Complete!'}</strong></div><button class="button ghost full" data-open-series="${encodeURIComponent(series.name)}">View checklist</button></article>`}).join(''):'<p class="no-results">No franchise goals match.</p>';
+  hydrateArt($("#seriesCatalog"));
+}
+function renderGoalDetail(){
+  const series=SERIES.find(s=>s.name===activeSeriesName),detail=$("#goalDetail");detail.classList.toggle('hidden',!series);if(!series)return;
+  const status=seriesStatus(series),artPlatforms=seriesArtPlatforms(series);
+  $("#goalSystem").textContent=series.systems.map(displayPlatform).join(' • ');$("#goalTitle").textContent=series.name;
+  $("#goalSummary").textContent=status.owned.length===status.total?'You have every cataloged game in this goal.':`${status.total-status.owned.length} games are still missing from this collection goal.`;
+  $("#goalScore").innerHTML=`<strong>${status.owned.length}/${status.total}</strong><span>owned</span>`;$("#goalProgressBar").style.width=`${status.percent}%`;
+  $("#goalChecklist").innerHTML=series.entries.map((entry,index)=>{const game=ownedGame(entry,series),state=game?stateFor(game.id):null;return`<article class="goal-row ${game?'owned':'missing'}">${game?cover(game,'mini'):titleCover(entry.title,artPlatforms,'mini')}<div><strong>${index+1}. ${escapeHtml(entry.title)}</strong><p>${game?`${escapeHtml(displayPlatform(game.platform))} · ${STATUS_LABEL[state.status]}${state.percent?` · ${state.percent}%`:''}`:'Not detected in your library'}</p></div>${game?`<button class="text-button" data-game="${escapeHtml(game.id)}">Open</button>`:'<span class="missing-label">Missing</span>'}<span class="goal-check" aria-hidden="true">${game?(state.status==='beaten'?'★':'✓'):'○'}</span></article>`}).join('');
+  hydrateArt(detail);
+}
+function renderRecommendations(){
+  renderSeriesFilters();renderSeriesCatalog();renderGoalDetail();
+  const recs=recommendations();
+  $("#recommendationList").innerHTML=recs.slice(0,12).map(r=>`<article class="recommendation-card">${titleCover(r.title,seriesArtPlatforms(r.series),'rec')}<div><p class="eyebrow">${escapeHtml(r.series.name)}</p><h3>${escapeHtml(r.title)}</h3><p>${escapeHtml(r.reason)}</p><div class="reason">${r.kind==='earlier'?'↶ Earlier entry':'→ Next in series'} · you own another game in this series</div></div><button class="dismiss" data-dismiss="${escapeHtml(r.key)}">Dismiss</button></article>`).join('');
+  $("#recommendationEmpty").classList.toggle('hidden',recs.length>0);
+  hydrateArt($("#recommendationList"));
+}
+function renderAll(){ownedIndex=null;renderPlatforms();renderDashboard();renderLibrary();renderRecommendations()}
+
+/* ---------------- game dialog ---------------- */
+function openGame(id){
+  const game=byId(id);if(!game)return;activeGameId=id;const s=stateFor(id);
+  $("#dialogPlatform").textContent=displayPlatform(game.platform);$("#dialogTitle").textContent=game.title;$("#dialogPath").textContent=fileOf(game)||'Imported game';
+  $$('input[name="dialogStatus"]').forEach(r=>r.checked=r.value===s.status);
+  $("#dialogProgress").value=s.percent;$("#progressOutput").value=`${s.percent}%`;$("#dialogNotes").value=s.notes;
+  const g=guideUrls(game);$("#guideLink").href=g.web;$("#gamefaqsLink").href=g.faqs;$("#youtubeLink").href=g.video;
+  $("#artPicker").classList.add('hidden');$("#artSearch").value='';
+  $("#changeArtButton").classList.toggle('hidden',!CheckpointArt.supports(game.platform));
+  renderDialogCover(game);$("#gameDialog").showModal();
+}
+function renderDialogCover(game){
+  $("#dialogCover").innerHTML=cover(game,'dialog-cover');const bd=$("#dialogBackdrop");bd.style.backgroundImage='';
+  hydrateArt($("#dialogCover"));
+  CheckpointArt.resolve(game).then(ref=>{if(ref&&activeGameId===game.id)bd.style.backgroundImage=`url("${CheckpointArt.urls(ref)[0]}")`});
+}
+async function renderArtOptions(){
+  const game=byId(activeGameId);if(!game)return;const box=$("#artOptions");box.innerHTML='<p class="muted small">Searching…</p>';
+  const query=$("#artSearch").value.trim();const results=await CheckpointArt.search(game,query,18);
+  if(game.id!==activeGameId)return;
+  box.innerHTML=results.length?results.map((ref,i)=>`<button type="button" class="art-option" data-ref="${i}" title="${escapeHtml(ref.name)}"><span class="art-thumb"></span><small>${escapeHtml(ref.name)}</small></button>`).join(''):'<p class="muted small">No matching art found. Try a shorter search, like the main title only.</p>';
+  box.querySelectorAll('.art-option').forEach(btn=>{const ref=results[Number(btn.dataset.ref)];showArt(btn.querySelector('.art-thumb'),CheckpointArt.urls(ref));btn.onclick=()=>{CheckpointArt.setOverride(game.id,ref);afterArtChange(game,'Cover updated')}});
+}
+function afterArtChange(game,message){loadedArt.delete(`g:${game.id}`);renderDialogCover(game);$("#artPicker").classList.add('hidden');renderAll();toast(message)}
+
+/* ---------------- events ---------------- */
+document.addEventListener('click',e=>{
+  const routeBtn=e.target.closest('[data-route]');if(routeBtn){if(routeBtn.dataset.statusLink){libraryStatus=routeBtn.dataset.statusLink;libraryVisibleCount=LIBRARY_PAGE_SIZE}route(routeBtn.dataset.route);return}
+  const plat=e.target.closest('[data-platform-link]');if(plat){$("#platformFilter").value=plat.dataset.platformLink;libraryStatus='all';libraryVisibleCount=LIBRARY_PAGE_SIZE;route('library');return}
+  const tab=e.target.closest('[data-status]');if(tab){libraryStatus=tab.dataset.status;libraryVisibleCount=LIBRARY_PAGE_SIZE;renderLibrary();return}
+  const series=e.target.closest('[data-open-series]');if(series){activeSeriesName=decodeURIComponent(series.dataset.openSeries);renderSeriesCatalog();renderGoalDetail();$("#goalDetail").scrollIntoView({behavior:'smooth',block:'start'});return}
+  const dismiss=e.target.closest('[data-dismiss]');if(dismiss){dismissed.push(dismiss.dataset.dismiss);write(STORAGE.dismissed,dismissed);renderAll();toast('Suggestion dismissed');return}
+  const game=e.target.closest('[data-game]');if(game&&!e.target.closest('dialog'))openGame(game.dataset.game);
+});
+document.addEventListener('keydown',e=>{if((e.key==='Enter'||e.key===' ')&&e.target.matches?.('[data-game][role="button"]')){e.preventDefault();openGame(e.target.dataset.game)}});
 ['#importButton','#heroImportButton','#libraryImportButton','#emptyImportButton'].forEach(id=>$(id).onclick=triggerImport);
 $("#inventoryInput").onchange=e=>{if(e.target.files[0])importFile(e.target.files[0]);e.target.value=''};
+$("#backupInput").onchange=e=>{if(e.target.files[0])restoreBackup(e.target.files[0]);e.target.value=''};
+$("#restoreButton").onclick=()=>$("#backupInput").click();
 $("#demoButton").onclick=()=>mergeInventory(DEMO);$("#backupButton").onclick=exportBackup;
 function resetLibraryView(){libraryVisibleCount=LIBRARY_PAGE_SIZE;renderLibrary()}
-$("#searchInput").oninput=resetLibraryView;$("#platformFilter").onchange=resetLibraryView;$("#statusFilter").onchange=resetLibraryView;
+let searchTimer;$("#searchInput").oninput=()=>{clearTimeout(searchTimer);searchTimer=setTimeout(resetLibraryView,120)};
+$("#platformFilter").onchange=resetLibraryView;$("#sortSelect").onchange=resetLibraryView;
 $("#loadMoreButton").onclick=()=>{libraryVisibleCount+=LIBRARY_PAGE_SIZE;renderLibrary()};
-$("#seriesSearch").oninput=renderSeriesCatalog;$("#seriesPlatform").onchange=renderSeriesCatalog;
+$("#seriesSearch").oninput=renderSeriesCatalog;$("#seriesPlatform").onchange=renderSeriesCatalog;$("#seriesOwnedOnly").onchange=renderSeriesCatalog;
 $("#closeGoalButton").onclick=()=>{activeSeriesName=null;renderSeriesCatalog();renderGoalDetail()};
 $("#dialogProgress").oninput=e=>$("#progressOutput").value=`${e.target.value}%`;
-$("#saveGameButton").onclick=()=>{if(!activeGameId)return;saveState(activeGameId,{status:$("#dialogStatus").value,percent:Number($("#dialogProgress").value),notes:$("#dialogNotes").value.trim()});toast('Game progress saved')};
-renderAll();
-
+$$('input[name="dialogStatus"]').forEach(r=>r.onchange=()=>{if(r.value==='beaten'&&r.checked){$("#dialogProgress").value=100;$("#progressOutput").value='100%'}});
+$("#saveGameButton").onclick=()=>{if(!activeGameId)return;const status=$('input[name="dialogStatus"]:checked')?.value||'backlog';saveState(activeGameId,{...stateFor(activeGameId),status,percent:Number($("#dialogProgress").value),notes:$("#dialogNotes").value.trim()});toast('Game progress saved')};
+$("#changeArtButton").onclick=()=>{const p=$("#artPicker");p.classList.toggle('hidden');if(!p.classList.contains('hidden'))renderArtOptions()};
+let artTimer;$("#artSearch").oninput=()=>{clearTimeout(artTimer);artTimer=setTimeout(renderArtOptions,250)};
+$("#artSearch").onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();renderArtOptions()}};
+$("#artAutoButton").onclick=()=>{const g=byId(activeGameId);if(!g)return;CheckpointArt.clearOverride(g.id);afterArtChange(g,'Using automatic cover')};
+$("#artNoneButton").onclick=()=>{const g=byId(activeGameId);if(!g)return;CheckpointArt.hideArt(g.id);afterArtChange(g,'Cover art hidden for this game')};
+$("#gameDialog").addEventListener('close',()=>{activeGameId=null});
+renderAll();route(location.hash.slice(1)||'dashboard',{scroll:false});

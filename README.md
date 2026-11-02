@@ -14,14 +14,28 @@ Live site: <https://jamespond298.github.io/checkpoint-retro-library/>
 - Library data, progress, notes, and dismissed suggestions are stored in browser `localStorage`.
 - Importing a newer scan merges by stable game ID and preserves existing progress.
 - **Export backup** downloads library and progress together as `checkpoint-backup.json`.
-- Cover art is requested directly from the key-free Libretro thumbnail service using the original filename first, then the cleaned title. If no exact match exists, Checkpoint keeps its generated letter cover instead of showing a broken image.
+- Box art comes from the free [Libretro thumbnails](https://github.com/libretro-thumbnails/libretro-thumbnails) project. Images load directly from Libretro (with a GitHub mirror as fallback); nothing about your library is sent anywhere except the image requests themselves.
+
+## How cover art matching works
+
+ROM filenames rarely match catalog names exactly (`000 Sonic the Hedgehog 1.sms`, `Sonic Adventure2.chd`, `sfiii3.zip`). Instead of guessing URLs, the site ships an index of every thumbnail Libretro actually has (`art-index/`, one file per system, loaded only for systems in your library) and matches against it in `art.js`:
+
+1. **Exact filename** match.
+2. **Normalized title** match, ignoring punctuation, region/version tags, `The` (including `Legend of Zelda, The`), Roman vs. Arabic numerals, glued numbers (`Adventure2`), `&`/`and`, accents, catalog prefixes, and common abbreviations (`GTA`, `FF`, `KOF`…).
+3. **Fuzzy token match** that never mixes up sequels (numbers must agree).
+
+Arcade ROM short names are translated to full titles with the FBNeo and MAME 2003-Plus databases (`art-index/arcade-names.json`). When several images exist, Checkpoint prefers your file's region, then USA → World → Europe → Japan, the matching disc number, and real box art over title screens. Results are cached in the browser.
+
+If a cover is wrong, open the game and choose **Wrong cover? Choose another** to search the art yourself, go back to automatic, or hide the art. Your choices are included in **Export backup**.
+
+To refresh the art index with Libretro's latest additions, run `python tools/build_art_index.py` (needs git and Python 3.10+) and commit `art-index/`.
 
 ## Run locally
 
-Serve the `dist` directory with any static web server. For example:
+Serve the repository root with any static web server. For example:
 
 ```powershell
-python -m http.server 4173 --directory dist
+python -m http.server 4173
 ```
 
 Then open `http://localhost:4173`.
