@@ -70,6 +70,18 @@
       <section class="view" id="recommendationsView" data-view="recommendations">
         <div class="page-heading"><div><p class="eyebrow">COMPLETE THE JOURNEY</p><h1>Series Quest</h1><p>Suggestions based on gaps in series you already own—not generic advertising.</p></div></div>
         <div class="series-explainer"><span class="spark">✦</span><div><strong>How this works</strong><p>Checkpoint compares your matched titles with an ordered series catalog. Every suggestion explains the gap, and you can dismiss games you do not want.</p></div></div>
+        <div class="series-toolbar">
+          <label class="search"><span>⌕</span><input id="seriesSearch" type="search" placeholder="Find a franchise goal…"></label>
+          <select id="seriesPlatform" aria-label="Filter franchise goals by platform"><option value="all">All systems</option></select>
+        </div>
+        <div id="seriesCatalog" class="series-catalog"></div>
+        <section id="goalDetail" class="goal-detail hidden">
+          <button class="text-button" id="closeGoalButton">← All franchise goals</button>
+          <div class="goal-heading"><div><p class="eyebrow" id="goalSystem"></p><h2 id="goalTitle"></h2><p id="goalSummary"></p></div><div class="goal-score" id="goalScore"></div></div>
+          <div class="progress-track goal-progress"><i id="goalProgressBar"></i></div>
+          <div id="goalChecklist" class="goal-checklist"></div>
+        </section>
+        <div class="section-heading recommendations-heading"><div><p class="eyebrow">QUICK WINS</p><h2>Gaps detected in your library</h2></div></div>
         <div id="recommendationList" class="recommendation-list"></div>
         <div id="recommendationEmpty" class="empty-state"><div class="empty-icon">✦</div><h2>No series gaps found yet</h2><p>Import a library with games from a supported series, or add more games to your collection.</p></div>
       </section>
