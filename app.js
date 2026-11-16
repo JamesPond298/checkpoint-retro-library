@@ -39,7 +39,7 @@ const isStarted=g=>{const s=stateFor(g.id);return s.status==='playing'||s.status
 function unfinished(){const recent=g=>progress[g.id]?.updatedAt||'';return library.filter(isStarted).sort((a,b)=>stateFor(b.id).percent-stateFor(a.id).percent||recent(b).localeCompare(recent(a)))}
 function finishStats(){const beaten=library.filter(g=>stateFor(g.id).status==='beaten'),year=String(new Date().getFullYear()),started=unfinished().length;return{beaten:beaten.length,thisYear:beaten.filter(g=>(progress[g.id]?.beatenAt||'').startsWith(year)).length,inProgress:started,rate:beaten.length+started?Math.round(beaten.length/(beaten.length+started)*100):0}}
 const byId=id=>library.find(g=>g.id===id);
-function toast(message){const el=$("#toast");el.textContent=message;el.classList.add("show");clearTimeout(toast.timer);toast.timer=setTimeout(()=>el.classList.remove("show"),2600)}
+function toast(message){const el=$("#toast"),host=[...document.querySelectorAll('dialog[open]')].pop()||document.body;if(el.parentElement!==host)host.appendChild(el);el.textContent=message;el.classList.add("show");clearTimeout(toast.timer);toast.timer=setTimeout(()=>el.classList.remove("show"),2600)}
 function fileOf(game){return game.files?.[0]?.relativePath||game.files?.[0]?.filename||''}
 
 /* ---------------- cover art ---------------- */
@@ -74,8 +74,17 @@ function route(name,{scroll=true}={}){if(!['dashboard','library','recommendation
 function validateInventory(data){if(!data||data.format!=="checkpoint-inventory"||!Number.isInteger(data.version)||!Array.isArray(data.games))throw new Error("This is not a supported Checkpoint inventory file.");if(data.version!==1)throw new Error(`Inventory version ${data.version} is not supported yet.`);return data}
 function mergeInventory(data){validateInventory(data);const old=new Map(library.map(g=>[g.id,g]));let added=0;const now=new Date().toISOString();for(const raw of data.games){if(!raw.title||!raw.platform)continue;const fallback=`${raw.platform}:${norm(raw.normalizedTitle||raw.title)}`;let game={...raw,id:raw.id||fallback,normalizedTitle:raw.normalizedTitle||norm(raw.title),importedAt:now};if(old.has(game.id)){const prev=old.get(game.id);if(fileOf(prev)!==fileOf(game))CheckpointArt.forget(game.id);game={...prev,...game,importedAt:prev.importedAt||now}}else added++;old.set(game.id,game)}library=[...old.values()];libraryVisibleCount=LIBRARY_PAGE_SIZE;write(STORAGE.library,library);renderAll();toast(`${added} new game${added===1?'':'s'} added • ${library.length} total`);route('dashboard')}
 async function importFile(file){try{mergeInventory(JSON.parse(await file.text()))}catch(error){toast(error.message)}}
-function exportBackup(){const blob=new Blob([JSON.stringify({format:'checkpoint-backup',version:1,exportedAt:new Date().toISOString(),library,progress,dismissed,marks,art:CheckpointArt.exportOverrides()},null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='checkpoint-backup.json';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);toast('Backup downloaded')}
-async function restoreBackup(file){try{const data=JSON.parse(await file.text());if(data?.format!=='checkpoint-backup'||!Array.isArray(data.library))throw new Error('This is not a Checkpoint backup file.');if(!confirm(`Replace this browser's library with the backup (${data.library.length} games)?`))return;library=data.library;progress=data.progress||{};dismissed=data.dismissed||[];marks=data.marks||marks;write(MARKS_KEY,marks);CheckpointArt.importOverrides(data.art);write(STORAGE.library,library);write(STORAGE.progress,progress);write(STORAGE.dismissed,dismissed);loadedArt.clear();renderAll();toast('Backup restored');route('dashboard')}catch(error){toast(error.message)}}
+/* Backup v2 adds guide positions (guides), checkpoints and your guide links (play), and
+   suggestion preferences (prefs). v1 backups still restore; parts they don't contain are left as they are. */
+const BACKUP_VERSION=2;
+function exportBackup(){const pd=CheckpointPlay.exportAll();const blob=new Blob([JSON.stringify({format:'checkpoint-backup',version:BACKUP_VERSION,exportedAt:new Date().toISOString(),library,progress,dismissed,marks,art:CheckpointArt.exportOverrides(),guides:CheckpointGuide.exportStore(),play:pd.play,prefs:pd.prefs},null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='checkpoint-backup.json';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);toast('Backup downloaded')}
+const isPlainObject=v=>Boolean(v)&&typeof v==='object'&&!Array.isArray(v);
+async function restoreBackup(file){try{const data=JSON.parse(await file.text());if(data?.format!=='checkpoint-backup'||!Array.isArray(data.library))throw new Error('This is not a Checkpoint backup file.');if(Number(data.version)>BACKUP_VERSION)throw new Error(`This backup is from a newer version of Checkpoint (v${data.version}). Reload the page and try again.`);
+  const games=data.library.filter(g=>isPlainObject(g)&&g.id&&g.title&&g.platform);
+  if(!confirm(`Replace this browser's library with the backup (${games.length} games)?`))return;
+  library=games;progress=isPlainObject(data.progress)?data.progress:{};dismissed=Array.isArray(data.dismissed)?data.dismissed:[];marks=isPlainObject(data.marks)?data.marks:marks;write(MARKS_KEY,marks);CheckpointArt.importOverrides(data.art);
+  CheckpointGuide.importStore(isPlainObject(data.guides)?data.guides:undefined);CheckpointPlay.importAll({play:isPlainObject(data.play)?data.play:undefined,prefs:isPlainObject(data.prefs)?data.prefs:undefined});
+  write(STORAGE.library,library);write(STORAGE.progress,progress);write(STORAGE.dismissed,dismissed);loadedArt.clear();renderAll();toast(data.version>=2?'Backup restored':'Backup restored (older backup: existing checkpoints kept)');route('dashboard')}catch(error){toast(error instanceof SyntaxError?'That file isn\'t valid JSON.':error.message)}}
 function triggerImport(){$("#inventoryInput").click()}
 
 /* ---------------- series logic ---------------- */
@@ -147,14 +156,94 @@ function playNextPicks(exclude){
   const out=new Map();
   for(const series of SERIES){
     const st=seriesStatus(series),owned=st.entries.filter(e=>e.game);if(!owned.length)continue;
-    const fresh=owned.filter(e=>stateFor(e.game.id).status==='backlog'&&!exclude.has(e.game.id));if(!fresh.length)continue;
+    const fresh=owned.filter(e=>stateFor(e.game.id).status==='backlog'&&!exclude.has(e.game.id)&&!isNotForMe(e.game.id));if(!fresh.length)continue;
     const done=owned.filter(e=>['beaten','playing'].includes(stateFor(e.game.id).status));
     if(done.length){const last=done[done.length-1],next=fresh.find(e=>e.index>last.index);if(next){const beat=stateFor(last.game.id).status==='beaten';out.set(next.game.id,{game:next.game,series,score:beat?100:80,reason:`${beat?'You beat':"You're playing"} ${last.entry.title}. ${next.entry.title===next.game.title?'This':next.entry.title} is next in ${series.name}.`});continue}}
     if(!done.length&&owned.length>=2){const first=fresh[0];if(!out.has(first.game.id))out.set(first.game.id,{game:first.game,series,score:40+owned.length*3,reason:`You own ${owned.length} ${series.name} games. Start from the beginning.`})}
   }
   return[...out.values()].sort((a,b)=>b.score-a.score);
 }
-function trackSuggestions(){const held=unfinished();const picks=playNextPicks(new Set()).map(p=>p.game);const seen=new Set();return[...held,...picks,...library.filter(g=>stateFor(g.id).status==='backlog')].filter(g=>!seen.has(g.id)&&seen.add(g.id)).slice(0,6)}
+function trackSuggestions(){const held=unfinished();const picks=playNextPicks(new Set()).map(p=>p.game);const seen=new Set();const out=[];for(const g of [...held,...picks]){if(!seen.has(g.id)&&!isNotForMe(g.id)){seen.add(g.id);out.push(g)}if(out.length>=6)return out}for(const g of library){if(out.length>=6)break;if(!seen.has(g.id)&&!isNotForMe(g.id)&&stateFor(g.id).status==='backlog'){seen.add(g.id);out.push(g)}}return out}
+
+/* ---------------- checkpoints (where am I / what next) ---------------- */
+function ago(iso){if(!iso||Number.isNaN(Date.parse(iso)))return'';const d=Math.floor((Date.now()-Date.parse(iso))/864e5);if(d<=0)return'today';if(d===1)return'yesterday';if(d<45)return`${d} days ago`;return`on ${new Date(iso).toLocaleDateString(undefined,{month:'short',day:'numeric',...(d>300?{year:'numeric'}:{})})}`}
+const lastTouched=id=>[progress[id]?.updatedAt||'',CheckpointPlay.get(id).updatedAt||''].sort().pop();
+function guideInfo(id){const gi=CheckpointGuide.info(id);if(gi?.root)return{label:'Resume guide',sub:gi.chapter||gi.root,kind:'wiki'};if(gi?.none)return{label:CheckpointPlay.get(id).links.length?'My guide links':'Guide & checkpoints',sub:'',kind:'manual'};return{label:'Open walkthrough',sub:'',kind:'new'}}
+function stepLabel(s){return s.spoiler&&recPrefs().hideSpoilers?'<span class="muted">Spoiler step (hidden)</span>':escapeHtml(s.text)}
+/* A compact, read-mostly "where am I?" card. Next steps can be ticked right here. */
+function whereCard(game){
+  const sum=CheckpointPlay.summary(game.id),id=escapeHtml(game.id);
+  if(sum.isEmpty)return`<div class="where-card empty"><p><b>Where are you?</b> Jot down your location and next step so you can jump straight back in next time.</p></div>`;
+  const next=sum.next.slice(0,3),when=ago(CheckpointPlay.get(game.id).updatedAt);
+  return`<div class="where-card"><dl class="where-grid"><div><dt>📍 Where</dt><dd>${sum.location?escapeHtml(sum.location):'<span class="muted">Not set</span>'}</dd></div><div><dt>🎯 Objective</dt><dd>${sum.objective?escapeHtml(sum.objective):'<span class="muted">Not set</span>'}</dd></div></dl>`+
+    (next.length?`<ul class="where-steps" aria-label="Next steps">${next.map(s=>`<li><label><input type="checkbox" data-where-step="${escapeHtml(s.id)}" data-where-game="${id}"><span>${stepLabel(s)}</span></label></li>`).join('')}${sum.next.length>3?`<li class="muted small">+ ${sum.next.length-3} more</li>`:''}</ul>`:'')+
+    `<p class="where-sum">${sum.total?`<span class="where-meter" role="img" aria-label="${sum.done} of ${sum.total} checkpoints done"><i style="width:${sum.percent}%"></i></span>${sum.done} of ${sum.total} checkpoints done`:'No next steps yet'}${when?` · updated ${when}`:''}</p></div>`;
+}
+function openCheckpoint(id){
+  const game=byId(id);if(!game)return;const dlg=$("#checkpointDialog");dlg.dataset.game=id;
+  $("#checkpointTitle").textContent=game.title;
+  const gi=CheckpointGuide.info(id);
+  CheckpointPlay.renderEditor($("#checkpointEditor"),id,{chapters:CheckpointGuide.chapters(id),chapterSource:gi?.root?`${CheckpointGuide.SOURCE_NAME}: ${gi.root}`:''});
+  $("#checkpointGuide").innerHTML=`📖 ${escapeHtml(guideInfo(id).label)}`;
+  if(!dlg.open)dlg.showModal();
+  const sum=CheckpointPlay.summary(id);(sum.location?$("#checkpointEditor [data-cp-new]"):$("#checkpointEditor [data-cp-field]"))?.focus();
+}
+
+/* ---------------- recommendations ----------------
+   Local and explainable. Signals: status (playing / on hold / backlog / beaten), logged
+   progress and checkpoints, series order of games you own, systems you play, "Not for me",
+   and the preferences you set. No genre, length or taste data is assumed.
+   Finish-first mode (default): pick back up what you started, plus one game for later.
+   Explore mode: also new starts, a different game on a system you play, more collection gaps. */
+let recPrefsCache=null,wildcardSeed=0,lastHidden=null;
+const recPrefs=()=>recPrefsCache||(recPrefsCache=CheckpointPlay.prefs());
+const isNotForMe=id=>Boolean(recPrefs().notForMe[id]);
+const STATUS_ORDER={playing:0,'on-hold':1,backlog:2};
+function continueReason(g){const s=stateFor(g.id),sum=CheckpointPlay.summary(g.id),when=ago(lastTouched(g.id));
+  const lead=s.status==='playing'?`You're also playing this${when?` (last updated ${when})`:''}.`:s.status==='on-hold'?`On hold${s.percent?` at ${s.percent}%`:''}${when?`, last updated ${when}`:''}.`:`You logged ${s.percent}% progress, but it's still in your backlog.`;
+  const where=sum.location?` You stopped at “${sum.location}”.`:sum.objective?` Next up: ${sum.objective}.`:'';
+  return lead+where+(sum.total?` ${sum.done} of ${sum.total} checkpoints done.`:'')}
+function hashPick(n,salt){let h=2166136261;for(const c of salt)h=Math.imul(h^c.charCodeAt(0),16777619);return(h>>>0)%n}
+function systemPick(used,out){
+  const prefs=recPrefs(),preferred=new Set(prefs.systems),beat=new Map(),played=new Map(),owned=new Set(library.map(g=>g.platform));
+  for(const g of library){const s=stateFor(g.id).status;if(s==='beaten')beat.set(g.platform,(beat.get(g.platform)||0)+1);else if(s!=='backlog')played.set(g.platform,(played.get(g.platform)||0)+1)}
+  const taken=new Set(out.map(o=>o.game?.platform).filter(Boolean)),score=p=>(beat.get(p)||0)*2+(played.get(p)||0);
+  const systems=[...new Set([...preferred,...beat.keys(),...played.keys()])].filter(p=>owned.has(p)).sort((a,b)=>preferred.has(b)-preferred.has(a)||taken.has(a)-taken.has(b)||score(b)-score(a));
+  for(const p of systems){
+    const pool=library.filter(g=>g.platform===p&&!used.has(g.id)&&!isNotForMe(g.id)&&(s=>s.status==='backlog'&&!s.percent)(stateFor(g.id)));if(!pool.length)continue;
+    const starter=pool.find(g=>seriesOf(g.id).some(m=>m.index===0)),g=starter||pool[hashPick(pool.length,`${new Date().toDateString()}|${p}|${wildcardSeed}`)];
+    const b=beat.get(p)||0,pl=played.get(p)||0,sys=shortPlatform(p);
+    const why=b?`You've beaten ${b} ${sys} game${b===1?'':'s'}${pl?` and have ${pl} more going`:''}.`:pl?`You've started ${pl} ${sys} game${pl===1?'':'s'}.`:`You said you'd like to play more ${sys}.`;
+    const what=starter?(m=>` This is game 1 of ${m.series.entries.length} in ${m.series.name}, and you own it.`)(seriesOf(starter.id).find(m=>m.index===0)):` A random pick from your ${pool.length.toLocaleString()} unstarted ${sys} games${(m=>m?` (game ${m.index+1} of ${m.series.entries.length} in ${m.series.name})`:'')(seriesOf(g.id)[0])}. It changes daily, or shuffle for another.`;
+    return{kind:'system',game:g,label:starter?`🕹 Something different on ${sys}`:`🎲 Wildcard on ${sys}`,reason:why+what,shuffle:!starter};
+  }
+  return null;
+}
+function buildRecommendations(focusId){
+  const prefs=recPrefs(),explore=prefs.mode==='explore',preferred=new Set(prefs.systems),out=[],used=new Set(focusId?[focusId]:[]);
+  const ok=g=>g&&!used.has(g.id)&&!isNotForMe(g.id)&&stateFor(g.id).status!=='beaten';
+  const push=item=>{used.add(item.game?item.game.id:item.key);out.push(item)};
+  const count=kind=>out.filter(o=>o.kind===kind).length,boost=p=>preferred.has(p)?15:0;
+  // 1. Finish what you started: other games you're playing first, then on hold, then backlog with progress.
+  const started=unfinished().filter(ok).sort((a,b)=>STATUS_ORDER[stateFor(a.id).status]-STATUS_ORDER[stateFor(b.id).status]);
+  const hasUnfinished=Boolean(focusId)||started.length>0;
+  started.slice(0,explore||focusId?1:2).forEach(g=>push({kind:'continue',game:g,label:stateFor(g.id).status==='on-hold'?'↺ Pick back up':'▶ Keep going',reason:continueReason(g)}));
+  // 2. The next game you own in a series you've played (or the first game of one you own several of).
+  const seriesSlots=explore?2:hasUnfinished?1:2,seenSeries=new Set();
+  for(const p of playNextPicks(used).filter(p=>ok(p.game)).sort((a,b)=>b.score+boost(b.game.platform)-a.score-boost(a.game.platform))){
+    if(count('series')>=seriesSlots)break;if(seenSeries.has(p.series.name))continue;seenSeries.add(p.series.name);
+    push({kind:'series',game:p.game,label:hasUnfinished&&!explore?'⏭ For when you finish':p.score>=80?'⏭ Next in the series':'▶ Start a series',reason:p.reason});
+  }
+  // 3. Something different on a system you play: only when exploring or nothing is unfinished.
+  if(explore||!hasUnfinished){const pick=systemPick(used,out);if(pick)push(pick)}
+  // 4. A missing series entry to track down (Series Quest), unless turned off.
+  if(!prefs.hideGaps){const gapSlots=explore?2:1,seenGap=new Set();
+    for(const r of [...recommendations()].sort((a,b)=>b.score+(b.playable.some(p=>preferred.has(p))?10:0)-a.score-(a.playable.some(p=>preferred.has(p))?10:0))){
+      if(count('gap')>=gapSlots)break;if(seenGap.has(r.series.name))continue;seenGap.add(r.series.name);
+      push({kind:'gap',key:r.key,gap:r,label:'＋ Add to your collection',reason:`${r.reason} (${r.series.name}).`});
+    }}
+  return{items:out.slice(0,6),hasUnfinished,explore};
+}
 function guideUrls(game){const q=`${game.title} ${displayPlatform(game.platform)}`;return{web:`https://www.google.com/search?q=${encodeURIComponent(q+' walkthrough guide')}`,faqs:`https://gamefaqs.gamespot.com/search?game=${encodeURIComponent(game.title)}`,video:`https://www.youtube.com/results?search_query=${encodeURIComponent(q+' walkthrough')}`}}
 function renderDashboard(){
   const has=library.length>0;$("#dashboardContent").classList.toggle('hidden',!has);$('.hero').classList.toggle('hidden',has);
@@ -162,20 +251,19 @@ function renderDashboard(){
   const playingNow=nowPlaying(),game=playingNow[0]||null;
   $("#spotlight").classList.toggle('tracker',!game);
   if(game){const s=stateFor(game.id);
-    $("#spotlight").innerHTML=`<div class="spotlight-backdrop" data-backdrop="${escapeHtml(game.id)}"></div><div class="spotlight-inner">${cover(game,'spotlight-cover')}<div class="spotlight-copy"><p class="eyebrow">NOW PLAYING</p><h2>${escapeHtml(game.title)}</h2><p class="muted"><span class="sys-dot" style="--family:${familyColor(game.platform)}"></span>${escapeHtml(displayPlatform(game.platform))}${(m=>m?` · ${escapeHtml(m.series.name)}, game ${m.index+1} of ${m.series.entries.length}`:'')(seriesOf(game.id)[0])}</p>${playingNow.length>1?`<p class="juggle">You're playing ${playingNow.length} games at once. Finishing one at a time makes it far more likely you'll see the credits.</p>`:''}${s.notes?`<blockquote class="spotlight-notes">${escapeHtml(s.notes.length>220?s.notes.slice(0,220)+'…':s.notes)}</blockquote>`:'<p class="spotlight-hint">Tip: jot down where you stopped so future you knows what\'s next.</p>'}<div class="spotlight-progress"><div class="progress-track"><i style="width:${s.percent}%"></i></div><strong>${s.percent}%</strong></div><div class="spotlight-actions"><button class="button primary" data-game="${escapeHtml(game.id)}">Update progress</button><button class="button ghost" data-guide="${escapeHtml(game.id)}">📖 ${CheckpointGuide.hasGuide(game.id)?'Resume guide':'Open walkthrough'}</button><button class="text-button small" data-track-change>Track a different game</button></div></div></div>`;
+    $("#spotlight").innerHTML=`<div class="spotlight-backdrop" data-backdrop="${escapeHtml(game.id)}"></div><div class="spotlight-inner">${cover(game,'spotlight-cover')}<div class="spotlight-copy"><p class="eyebrow">NOW PLAYING</p><h2>${escapeHtml(game.title)}</h2><p class="muted"><span class="sys-dot" style="--family:${familyColor(game.platform)}"></span>${escapeHtml(displayPlatform(game.platform))}${(m=>m?` · ${escapeHtml(m.series.name)}, game ${m.index+1} of ${m.series.entries.length}`:'')(seriesOf(game.id)[0])}</p>${playingNow.length>1?`<p class="juggle">You're playing ${playingNow.length} games at once. Finishing one at a time makes it far more likely you'll see the credits.</p>`:''}${whereCard(game)}${s.notes?`<p class="spotlight-notes"><b>Notes</b> ${escapeHtml(s.notes.length>160?s.notes.slice(0,160)+'…':s.notes)}</p>`:''}<div class="spotlight-progress"><div class="progress-track" role="img" aria-label="Progress ${s.percent}%"><i style="width:${s.percent}%"></i></div><strong>${s.percent}%</strong></div><div class="spotlight-actions"><button class="button primary" data-checkpoint="${escapeHtml(game.id)}">📍 Update checkpoint</button>${(gi=>`<button class="button ghost guide-resume" data-guide="${escapeHtml(game.id)}">📖 ${escapeHtml(gi.label)}${gi.sub?`<small>${escapeHtml(gi.sub)}</small>`:''}</button>`)(guideInfo(game.id))}<button class="button ghost" data-game="${escapeHtml(game.id)}">Details</button><button class="text-button small" data-track-change>Track a different game</button></div></div></div>`;
   }else renderTracker();
   const total=library.length,count=st=>library.filter(g=>stateFor(g.id).status===st).length,playing=count('playing'),beaten=count('beaten'),systems=new Set(library.map(g=>g.platform)).size;
   const fs=finishStats();
   $("#stats").innerHTML=[[fs.beaten,'Games beaten',fs.thisYear?`${fs.thisYear} this year`:'beat one to start your shelf',''],[`${fs.rate}%`,'Finish rate',`${fs.beaten} beaten of ${fs.beaten+fs.inProgress} started`,''],[fs.inProgress,'In progress',fs.inProgress>3?'that\'s a lot. Try finishing one first':fs.inProgress?'nicely focused':'pick one to focus on',fs.inProgress>3?'warn':''],[total.toLocaleString(),'Games owned',`across ${systems} systems`,'']].map(([n,l,e,c])=>`<div class="stat ${c}"><span>${l}</span><strong>${n}</strong><em>${e}</em></div>`).join('');
   const queue=unfinished().filter(g=>g.id!==game?.id);
   $("#upNextSection").classList.toggle('hidden',!queue.length);$("#upNext").innerHTML=queue.slice(0,12).map(finishCard).join('');
-  $("#forYouHeading").textContent=queue.length||game?'Play these when you finish':'Recommended for you';
   const trophies=library.filter(g=>stateFor(g.id).status==='beaten').sort((a,b)=>(progress[b.id]?.beatenAt||'').localeCompare(progress[a.id]?.beatenAt||''));
   $("#trophySection").classList.toggle('hidden',!trophies.length);$("#trophyCount").textContent=`${trophies.length} beaten`;$("#trophyShelf").innerHTML=trophies.slice(0,24).map(shelfGame).join('');
   const counts=new Map();library.forEach(g=>counts.set(g.platform,(counts.get(g.platform)||0)+1));
   $("#systemCount").textContent=`${counts.size} detected`;
   $("#platformChips").innerHTML=[...counts].sort((a,b)=>b[1]-a[1]).map(([p,n])=>`<button class="platform-chip" data-platform-link="${escapeHtml(p)}" style="--family:${familyColor(p)}"><span class="sys-dot"></span>${escapeHtml(shortPlatform(p))}<b>${n.toLocaleString()}</b></button>`).join('');
-  renderForYou(new Set(playingNow.map(g=>g.id)));
+  renderForYou(game?.id||null);
   const recent=[...library].map((g,i)=>[g,i]).sort((a,b)=>(b[0].importedAt||'').localeCompare(a[0].importedAt||'')||b[1]-a[1]).slice(0,16).map(x=>x[0]);
   $("#recentGames").innerHTML=recent.map(shelfGame).join('');
   hydrateArt($("#dashboardView"));
@@ -222,13 +310,22 @@ function celebrate(id){
   $("#celebrateNext").innerHTML=next.length?`<p class="small muted">Pick your next focus</p>`+next.map(n=>`<button class="track-result" data-track="${escapeHtml(n.game.id)}">${cover(n.game,'mini')}<span><b>${escapeHtml(n.game.title)}</b><small>${escapeHtml(n.why)}</small></span><em>Focus</em></button>`).join(''):'';
   hydrateArt($("#celebrateDialog"));$("#celebrateDialog").showModal();
 }
-function renderForYou(exclude){
-  const play=playNextPicks(exclude).slice(0,3),gaps=recommendations().slice(0,6-play.length);
-  const cards=[...play.map(p=>`<article class="for-you-card own">${cover(p.game,'fy')}<div class="fy-body"><p class="fy-kind">▶ In your library</p><h3>${escapeHtml(p.game.title)}</h3><p class="muted small">${escapeHtml(p.reason)}</p><div class="fy-actions"><button class="mini-button on" data-track="${escapeHtml(p.game.id)}">Start playing</button><button class="mini-button subtle" data-game="${escapeHtml(p.game.id)}">Details</button></div></div></article>`),
-    ...gaps.map(r=>`<article class="for-you-card gap">${entryCover(r.series,r.entry,'fy')}<div class="fy-body"><p class="fy-kind">＋ Add to your collection</p><h3>${escapeHtml(r.title)}</h3><p class="muted small">${escapeHtml(r.reason)} (${escapeHtml(r.series.name)}).</p>${platformChips(r.platforms)}<div class="fy-actions"><button class="mini-button" data-mark="want" data-series="${enc(r.series.name)}" data-entry="${enc(r.title)}">＋ Hunt</button><button class="mini-button subtle" data-mark="skip" data-series="${enc(r.series.name)}" data-entry="${enc(r.title)}">Not for me</button></div></div></article>`)];
-  $("#forYouSection").classList.toggle('hidden',!cards.length);$("#forYou").innerHTML=cards.join('');
+function renderForYou(focusId){
+  const{items,hasUnfinished,explore}=buildRecommendations(focusId),prefs=recPrefs();
+  const nfm=id=>`<button class="mini-button subtle" data-notforme="${escapeHtml(id)}" aria-label="Not for me: hide from suggestions">Not for me</button>`;
+  const cards=items.map(r=>{
+    if(r.kind==='gap')return`<article class="for-you-card gap">${entryCover(r.gap.series,r.gap.entry,'fy')}<div class="fy-body"><p class="fy-kind">${r.label}</p><h3>${escapeHtml(r.gap.title)}</h3><p class="muted small">${escapeHtml(r.reason)}</p>${platformChips(r.gap.platforms)}<div class="fy-actions"><button class="mini-button" data-mark="want" data-series="${enc(r.gap.series.name)}" data-entry="${enc(r.gap.title)}">＋ Hunt</button><button class="mini-button subtle" data-mark="skip" data-series="${enc(r.gap.series.name)}" data-entry="${enc(r.gap.title)}">Not for me</button></div></div></article>`;
+    const id=escapeHtml(r.game.id),cont=r.kind==='continue';
+    return`<article class="for-you-card own ${r.kind}">${cover(r.game,'fy')}<div class="fy-body"><p class="fy-kind">${escapeHtml(r.label)}</p><h3>${escapeHtml(r.game.title)}</h3><p class="fy-sys muted small"><span class="sys-dot" style="--family:${familyColor(r.game.platform)}"></span>${escapeHtml(shortPlatform(r.game.platform))}</p><p class="muted small">${escapeHtml(r.reason)}</p><div class="fy-actions">${cont?`<button class="mini-button on" data-track="${id}">${stateFor(r.game.id).status==='playing'?'Make focus':'Resume'}</button><button class="mini-button" data-checkpoint="${id}">📍 Where was I?</button>`:`<button class="mini-button on" data-track="${id}">Start playing</button><button class="mini-button" data-game="${id}">Details</button>`}${r.shuffle?`<button class="mini-button" data-shuffle aria-label="Shuffle: suggest a different random game">🎲 Shuffle</button>`:''}${nfm(r.game.id)}</div></div></article>`;
+  });
+  $("#forYouHeading").textContent=hasUnfinished&&!explore?'Pick up where you left off':explore?'Ideas for what to play':'What to play next';
+  const sys=prefs.systems.map(shortPlatform);
+  $("#forYouMode").textContent=`${explore?'Explore: includes new games to start':'Finish first: games you started come first'}${sys.length?` · favoring ${sys.slice(0,3).join(', ')}${sys.length>3?` +${sys.length-3}`:''}`:''}`;
+  const undo=lastHidden&&byId(lastHidden)&&isNotForMe(lastHidden)?`<p class="rec-undo" role="status">Hidden “${escapeHtml(byId(lastHidden).title)}” from suggestions. <button class="text-button small" data-undo-notforme="${escapeHtml(lastHidden)}">Undo</button></p>`:'';
+  $("#forYouSection").classList.toggle('hidden',!cards.length&&!undo);
+  $("#forYou").innerHTML=undo+(cards.join('')||'<p class="muted">Nothing to suggest right now. Change what suggestions focus on with <b>Tune suggestions</b>.</p>');
 }
-function finishCard(g){const s=stateFor(g.id);return`<article class="finish-card">${cover(g,'mini')}<div class="fc-body" data-game="${escapeHtml(g.id)}" role="button" tabindex="0"><b>${escapeHtml(g.title)}</b><small>${escapeHtml(shortPlatform(g.platform))} · ${STATUS_LABEL[s.status]}</small><div class="fc-progress"><div class="progress-track"><i style="width:${s.percent}%"></i></div><strong>${s.percent}%</strong></div></div><button class="mini-button" data-track="${escapeHtml(g.id)}">Make focus</button></article>`}
+function finishCard(g){const s=stateFor(g.id),loc=CheckpointPlay.get(g.id).location;return`<article class="finish-card">${cover(g,'mini')}<div class="fc-body" data-game="${escapeHtml(g.id)}" role="button" tabindex="0" aria-label="${escapeHtml(g.title)}: open details"><b>${escapeHtml(g.title)}</b><small>${escapeHtml(shortPlatform(g.platform))} · ${STATUS_LABEL[s.status]}</small>${loc?`<small class="fc-where">📍 ${escapeHtml(loc)}</small>`:''}<div class="fc-progress"><div class="progress-track"><i style="width:${s.percent}%"></i></div><strong>${s.percent}%</strong></div></div><div class="fc-actions"><button class="mini-button" data-track="${escapeHtml(g.id)}">Make focus</button><button class="mini-button subtle" data-checkpoint="${escapeHtml(g.id)}" aria-label="Update checkpoint for ${escapeHtml(g.title)}">📍</button><button class="mini-button subtle" data-guide="${escapeHtml(g.id)}" aria-label="Open guide for ${escapeHtml(g.title)}">📖</button></div></article>`}
 function shelfGame(g){const s=stateFor(g.id);return`<div class="shelf-game" data-game="${escapeHtml(g.id)}" tabindex="0" role="button" aria-label="${escapeHtml(g.title)}">${cover(g)}${s.percent?`<div class="cover-progress"><i style="width:${s.percent}%"></i></div>`:''}<b>${escapeHtml(g.title)}</b><small>${escapeHtml(shortPlatform(g.platform))}</small></div>`}
 
 /* ---------------- library ---------------- */
@@ -245,7 +342,7 @@ function renderLibrary(){
   filtered.sort(sorters[sort]||sorters.title);
   const visible=filtered.slice(0,libraryVisibleCount);
   $("#librarySubtitle").textContent=library.length?`${library.length.toLocaleString()} games across ${new Set(library.map(g=>g.platform)).size} systems${filtered.length!==library.length?` · ${filtered.length.toLocaleString()} shown`:''}`:'Import your scanner inventory to begin.';
-  $("#libraryGrid").innerHTML=visible.map(g=>{const s=stateFor(g.id);return`<article class="game-card" data-game="${escapeHtml(g.id)}" tabindex="0" role="button" aria-label="${escapeHtml(g.title)}">${cover(g)}${s.status!=='backlog'?`<span class="status-badge ${s.status}">${STATUS_LABEL[s.status]}</span>`:''}${s.percent?`<div class="cover-progress"><i style="width:${s.percent}%"></i></div>`:''}<button class="card-guide" data-guide="${escapeHtml(g.id)}" title="Open walkthrough" aria-label="Open walkthrough for ${escapeHtml(g.title)}">📖</button><div class="game-info"><h3 title="${escapeHtml(g.title)}">${escapeHtml(g.title)}</h3><p><span class="sys-dot" style="--family:${familyColor(g.platform)}"></span>${escapeHtml(shortPlatform(g.platform))}${seriesBadge(g)}</p></div></article>`}).join('');
+  $("#libraryGrid").innerHTML=visible.map(g=>{const s=stateFor(g.id);return`<article class="game-card" data-game="${escapeHtml(g.id)}" tabindex="0" role="button" aria-label="${escapeHtml(g.title)}">${cover(g)}${s.status!=='backlog'?`<span class="status-badge ${s.status}">${STATUS_LABEL[s.status]}</span>`:''}${s.percent?`<div class="cover-progress"><i style="width:${s.percent}%"></i></div>`:''}${(r=>`<button class="card-guide${r?' resume':''}" data-guide="${escapeHtml(g.id)}" title="${r?'Resume guide':'Open walkthrough'}" aria-label="${r?'Resume guide':'Open walkthrough'} for ${escapeHtml(g.title)}">📖</button>`)(CheckpointGuide.hasGuide(g.id))}<div class="game-info"><h3 title="${escapeHtml(g.title)}">${escapeHtml(g.title)}</h3><p><span class="sys-dot" style="--family:${familyColor(g.platform)}"></span>${escapeHtml(shortPlatform(g.platform))}${seriesBadge(g)}</p></div></article>`}).join('');
   $("#libraryGrid").classList.toggle('hidden',!library.length);
   if(library.length&&!filtered.length)$("#libraryGrid").innerHTML=`<p class="no-results">No games match these filters.</p>`;
   const more=$("#loadMoreButton");more.classList.toggle('hidden',visible.length>=filtered.length);more.textContent=`Show more games (${visible.length.toLocaleString()} of ${filtered.length.toLocaleString()})`;
@@ -348,11 +445,20 @@ function openGame(id){
   $("#dialogPlatform").textContent=displayPlatform(game.platform);$("#dialogTitle").textContent=game.title;$("#dialogPath").textContent=fileOf(game)||'Imported game';
   $$('input[name="dialogStatus"]').forEach(r=>r.checked=r.value===s.status);
   $("#dialogProgress").value=s.percent;$("#progressOutput").value=`${s.percent}%`;$("#dialogNotes").value=s.notes;
-  const g=guideUrls(game);$("#guideLink").href=g.web;$("#gamefaqsLink").href=g.faqs;$("#youtubeLink").href=g.video;$("#guideResume").textContent=CheckpointGuide.hasGuide(id)?'Pick up where you left off':'Read it right here';
+  const g=guideUrls(game);$("#guideLink").href=g.web;$("#gamefaqsLink").href=g.faqs;$("#youtubeLink").href=g.video;renderDialogGuide(id);
+  const gi=CheckpointGuide.info(id);CheckpointPlay.renderEditor($("#dialogPlay"),id,{chapters:CheckpointGuide.chapters(id),chapterSource:gi?.root?`${CheckpointGuide.SOURCE_NAME}: ${gi.root}`:''});
+  renderProgressHint(id);renderNotForMe(id);
   $("#artPicker").classList.add('hidden');$("#artSearch").value='';
   $("#changeArtButton").classList.toggle('hidden',!CheckpointArt.supports(game.platform));
   renderDialogCover(game);renderDialogSeries(game);if(!$("#gameDialog").open)$("#gameDialog").showModal();$("#gameDialog .dialog-card").scrollTop=0;
 }
+function renderDialogGuide(id){const gi=guideInfo(id),links=CheckpointPlay.get(id).links;
+  $("#guideButtonLabel").textContent=gi.label;$("#guideResume").textContent=gi.kind==='wiki'?gi.sub:gi.kind==='manual'?'Your checkpoints & links':'Read it right here';
+  $("#dialogUserLinks").innerHTML=links.length?`<span class="muted small">Your links</span>${links.map(l=>`<a class="chip-link mine" href="${escapeHtml(l.url)}" target="_blank" rel="noopener">${escapeHtml(l.label)} ↗</a>`).join('')}`:'';
+  $("#dialogUserLinks").classList.toggle('hidden',!links.length)}
+function renderProgressHint(id){const sum=CheckpointPlay.summary(id),el=$("#progressHint");el.classList.toggle('hidden',!sum.total);if(!sum.total)return;const near=Math.round(sum.percent/5)*5;
+  el.innerHTML=`Checkpoints: ${sum.done} of ${sum.total} done (${sum.percent}%). The slider is your own estimate${Number($("#dialogProgress").value)!==near?` · <button type="button" class="text-button small" data-use-cp-progress="${near}">Set it to ${near}%</button>`:''}.`}
+function renderNotForMe(id){const el=$("#dialogNotForMe"),on=isNotForMe(id);el.classList.toggle('hidden',!on);el.innerHTML=on?`Hidden from suggestions (“Not for me”). <button type="button" class="text-button small" data-undo-notforme="${escapeHtml(id)}">Show it again</button>`:''}
 function renderDialogSeries(game){
   const list=seriesOf(game.id).slice(0,3),box=$("#dialogSeries");
   box.innerHTML=list.map(({series,index})=>{const st=seriesStatus(series);return`<section class="ds-block"><div class="ds-head"><div><p class="eyebrow">IN THIS SERIES</p><b>${escapeHtml(series.name)}</b><span class="muted small">Game ${index+1} of ${series.entries.length} · you have ${st.collected}</span></div><button type="button" class="text-button small" data-ds-checklist="${enc(series.name)}">Full checklist →</button></div><div class="ds-strip">${st.entries.map(e=>{const cur=e.game?.id===game.id||(e.index===index);const label=`<span class="ds-num">${e.index+1}</span><small>${escapeHtml(e.entry.title)}</small>`;return e.game?`<button type="button" class="ds-item owned${cur?' current':''}" data-ds-game="${escapeHtml(e.game.id)}" title="${escapeHtml(e.entry.title)}${cur?' (this game)':''}">${cover(e.game,'ds')}${label}${cur?'<em>This game</em>':''}</button>`:`<button type="button" class="ds-item missing${e.wanted?' wanted':''}${e.mark==='have'?' have':''}" ${e.mark==='have'||e.skipped?'':`data-mark="${e.wanted?'':'want'}" data-series="${enc(series.name)}" data-entry="${enc(e.entry.title)}"`} title="${escapeHtml(e.entry.title)}: ${e.mark==='have'?'owned elsewhere':e.skipped?'skipped':e.wanted?'on your hunt list (click to remove)':'not in your library (click to add to hunt list)'}">${entryCover(series,e.entry,'ds')}${label}<em>${e.mark==='have'?'Have it':e.skipped?'Skipped':e.wanted?'✓ Hunting':'＋ Hunt'}</em></button>`}).join('')}</div></section>`}).join('');
@@ -371,7 +477,7 @@ async function renderArtOptions(){
   box.innerHTML=results.length?results.map((ref,i)=>`<button type="button" class="art-option" data-ref="${i}" title="${escapeHtml(ref.name)}"><span class="art-thumb"></span><small>${escapeHtml(ref.name)}</small></button>`).join(''):'<p class="muted small">No matching art found. Try a shorter search, like the main title only.</p>';
   box.querySelectorAll('.art-option').forEach(btn=>{const ref=results[Number(btn.dataset.ref)];showArt(btn.querySelector('.art-thumb'),CheckpointArt.urls(ref));btn.onclick=()=>{CheckpointArt.setOverride(game.id,ref);afterArtChange(game,'Cover updated')}});
 }
-function openGuide(id){const game=byId(id);if(!game)return;CheckpointGuide.open(game,{platformName:displayPlatform(game.platform),getNotes:()=>stateFor(id).notes,setNotes:notes=>{if(notes===stateFor(id).notes)return;progress[id]={...stateFor(id),notes,updatedAt:new Date().toISOString()};write(STORAGE.progress,progress);if(activeGameId===id)$("#dialogNotes").value=notes},onClose:()=>{renderDashboard();if(activeGameId===id)$("#guideResume").textContent='Pick up where you left off'}})}
+function openGuide(id){const game=byId(id);if(!game)return;CheckpointGuide.open(game,{platformName:displayPlatform(game.platform),getNotes:()=>stateFor(id).notes,setNotes:notes=>{if(notes===stateFor(id).notes)return;progress[id]={...stateFor(id),notes,updatedAt:new Date().toISOString()};write(STORAGE.progress,progress);if(activeGameId===id)$("#dialogNotes").value=notes},onClose:()=>{renderDashboard();if(activeGameId===id){renderDialogGuide(id);const gi=CheckpointGuide.info(id);CheckpointPlay.renderEditor($("#dialogPlay"),id,{chapters:CheckpointGuide.chapters(id),chapterSource:gi?.root?`${CheckpointGuide.SOURCE_NAME}: ${gi.root}`:''});renderProgressHint(id)}if($("#checkpointDialog").open&&$("#checkpointDialog").dataset.game===id)openCheckpoint(id)}})}
 function afterArtChange(game,message){loadedArt.delete(`g:${game.id}`);renderDialogCover(game);$("#artPicker").classList.add('hidden');renderAll();toast(message)}
 
 /* ---------------- events ---------------- */
@@ -386,6 +492,11 @@ document.addEventListener('click',e=>{
   const sf=e.target.closest('[data-series-filter]');if(sf){quest.status=sf.dataset.seriesFilter;saveQuest();renderRecommendations();return}
   const qt=e.target.closest('[data-quest-tab]');if(qt){quest.tab=qt.dataset.questTab;quest.limit=40;saveQuest();renderRecommendations();return}
   const qs=e.target.closest('[data-quest-system]');if(qs){quest.system=qs.dataset.questSystem;quest.limit=40;saveQuest();renderRecommendations();return}
+  const cp=e.target.closest('[data-checkpoint]');if(cp){openCheckpoint(cp.dataset.checkpoint);return}
+  const nfm=e.target.closest('[data-notforme]');if(nfm){const id=nfm.dataset.notforme;lastHidden=id;CheckpointPlay.setNotForMe(id,true);toast(`Hidden ${byId(id)?.title||'game'} from suggestions`);$("#forYou [data-undo-notforme]")?.focus();return}
+  const unf=e.target.closest('[data-undo-notforme]');if(unf){const id=unf.dataset.undoNotforme;CheckpointPlay.setNotForMe(id,false);if(lastHidden===id)lastHidden=null;if(activeGameId===id)renderNotForMe(id);toast(`${byId(id)?.title||'Game'} can be suggested again`);return}
+  if(e.target.closest('[data-shuffle]')){wildcardSeed++;renderForYou(nowPlaying()[0]?.id||null);hydrateArt($("#forYou"));$("#forYou [data-shuffle]")?.focus();return}
+  const useCp=e.target.closest('[data-use-cp-progress]');if(useCp){$("#dialogProgress").value=useCp.dataset.useCpProgress;$("#progressOutput").value=`${useCp.dataset.useCpProgress}%`;renderProgressHint(activeGameId);toast('Slider updated. Save changes to keep it');return}
   const track=e.target.closest('[data-track]');if(track){if($("#celebrateDialog").open)$("#celebrateDialog").close();trackGame(track.dataset.track);return}
   if(e.target.closest('[data-track-change]')){$("#spotlight").classList.add('tracker');$("#spotlight").innerHTML='';renderTracker();hydrateArt($("#spotlight"));$("#trackSearch").focus();return}
   const guideBtn=e.target.closest('[data-guide]');if(guideBtn){openGuide(guideBtn.dataset.guide);return}
@@ -407,7 +518,7 @@ $("#questMore").onclick=()=>{quest.limit+=40;renderQuestPanel()};$("#copyHuntBut
 document.addEventListener('input',e=>{if(e.target.id==='trackSearch')renderTracker(e.target.value)});
 document.addEventListener('change',e=>{if(e.target.id==='questSystemMore'&&e.target.value){quest.system=e.target.value;quest.limit=40;saveQuest();renderRecommendations()}});
 $("#closeGoalButton").onclick=()=>{activeSeriesName=null;renderRecommendations();$("#questBrowse").scrollIntoView({block:"start"})};
-$("#dialogProgress").oninput=e=>$("#progressOutput").value=`${e.target.value}%`;
+$("#dialogProgress").oninput=e=>{$("#progressOutput").value=`${e.target.value}%`;if(activeGameId)renderProgressHint(activeGameId)};
 $$('input[name="dialogStatus"]').forEach(r=>r.onchange=()=>{if(r.value==='beaten'&&r.checked){$("#dialogProgress").value=100;$("#progressOutput").value='100%'}});
 $("#saveGameButton").onclick=()=>{if(!activeGameId)return;const id=activeGameId,prev=stateFor(id),status=$('input[name="dialogStatus"]:checked')?.value||'backlog',fields={...prev,percent:Number($("#dialogProgress").value),notes:$("#dialogNotes").value.trim()};
   if(status==='playing'&&prev.status!=='playing'&&nowPlaying().some(o=>o.id!==id)){setTimeout(()=>askFocus(id,{onStart:hold=>{if(hold)for(const o of nowPlaying())if(o.id!==id)progress[o.id]={...stateFor(o.id),status:'on-hold'};saveState(id,{...fields,status:'playing'});toast('Game progress saved')},onCancel:()=>saveState(id,{...fields,status:prev.status})}),0);return}
@@ -419,4 +530,31 @@ $("#artSearch").onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();renderArtOp
 $("#artAutoButton").onclick=()=>{const g=byId(activeGameId);if(!g)return;CheckpointArt.clearOverride(g.id);afterArtChange(g,'Using automatic cover')};
 $("#artNoneButton").onclick=()=>{const g=byId(activeGameId);if(!g)return;CheckpointArt.hideArt(g.id);afterArtChange(g,'Cover art hidden for this game')};
 $("#gameDialog").addEventListener('close',()=>{activeGameId=null});
+
+/* checkpoint quick update */
+$("#checkpointClose").onclick=$("#checkpointDone").onclick=()=>$("#checkpointDialog").close();
+$("#checkpointGuide").onclick=()=>{const id=$("#checkpointDialog").dataset.game;$("#checkpointDialog").close();openGuide(id)};
+$("#checkpointDetails").onclick=()=>{const id=$("#checkpointDialog").dataset.game;$("#checkpointDialog").close();openGame(id)};
+$("#checkpointDialog").addEventListener('click',e=>{if(e.target===e.currentTarget)e.currentTarget.close()});
+// Tick a next step straight from the Now Playing card.
+let pendingFocus=null;
+document.addEventListener('change',e=>{const box=e.target.closest?.('[data-where-step]');if(!box)return;const gid=box.dataset.whereGame,list=[...document.querySelectorAll(`[data-where-game="${CSS.escape(gid)}"]`)],i=list.indexOf(box);
+  CheckpointPlay.editStep(gid,box.dataset.whereStep,{done:box.checked});pendingFocus={gid,i};toast('Step done. Nice!')});
+let playRenderTimer;
+document.addEventListener('checkpoint:play',e=>{const id=e.detail?.id;clearTimeout(playRenderTimer);
+  playRenderTimer=setTimeout(()=>{renderDashboard();if(pendingFocus){const{gid,i}=pendingFocus;pendingFocus=null;const list=[...document.querySelectorAll(`[data-where-game="${CSS.escape(gid)}"]`)];(list[Math.min(i,list.length-1)]||$(`#spotlight [data-checkpoint]`))?.focus()}},pendingFocus?0:250);
+  if(id&&id===activeGameId){renderProgressHint(id);renderDialogGuide(id)}});
+document.addEventListener('checkpoint:prefs',()=>{recPrefsCache=null;renderDashboard();if($("#recPrefsDialog").open)renderRecPrefs();if(activeGameId)renderNotForMe(activeGameId)});
+window.addEventListener('checkpoint:storage-error',()=>toast('Could not save: browser storage is full or blocked'));
+
+/* recommendation preferences */
+function renderRecPrefs(){const p=recPrefs(),counts=new Map();library.forEach(g=>counts.set(g.platform,(counts.get(g.platform)||0)+1));
+  $$('input[name="recMode"]').forEach(r=>r.checked=r.value===p.mode);$("#recPrefsGaps").checked=p.hideGaps;$("#recPrefsSpoilers").checked=p.hideSpoilers;
+  $("#recPrefsSystems").innerHTML=[...counts].sort((a,b)=>b[1]-a[1]).map(([s,n])=>`<button type="button" class="sys-chip${p.systems.includes(s)?' active':''}" data-pref-system="${escapeHtml(s)}" aria-pressed="${p.systems.includes(s)}" style="--family:${familyColor(s)}"><span class="sys-dot"></span>${escapeHtml(shortPlatform(s))}<b>${n.toLocaleString()}</b></button>`).join('')||'<p class="muted small">Import your library to pick systems.</p>';
+  const hidden=Object.keys(p.notForMe).map(byId).filter(Boolean);
+  $("#recPrefsHidden").innerHTML=hidden.length?`<ul class="prefs-hidden">${hidden.map(g=>`<li><span>${escapeHtml(g.title)} <small class="muted">${escapeHtml(shortPlatform(g.platform))}</small></span><button type="button" class="mini-button" data-undo-notforme="${escapeHtml(g.id)}">Show again</button></li>`).join('')}</ul>`:'<p class="muted small">Nothing hidden. Use “Not for me” on a suggestion to stop seeing it. Series Quest skips are managed in Series Quest.</p>'}
+$("#recTuneButton").onclick=()=>{renderRecPrefs();$("#recPrefsDialog").showModal()};
+$("#recPrefsClose").onclick=()=>$("#recPrefsDialog").close();
+$("#recPrefsDialog").addEventListener('click',e=>{if(e.target===e.currentTarget){e.currentTarget.close();return}const b=e.target.closest('[data-pref-system]');if(!b)return;const p=recPrefs(),s=b.dataset.prefSystem,systems=p.systems.includes(s)?p.systems.filter(x=>x!==s):[...p.systems,s];CheckpointPlay.setPrefs({systems});$(`#recPrefsSystems [data-pref-system="${CSS.escape(s)}"]`)?.focus()});
+$("#recPrefsDialog").addEventListener('change',e=>{if(e.target.name==='recMode')CheckpointPlay.setPrefs({mode:e.target.value});if(e.target.id==='recPrefsGaps')CheckpointPlay.setPrefs({hideGaps:e.target.checked});if(e.target.id==='recPrefsSpoilers')CheckpointPlay.setPrefs({hideSpoilers:e.target.checked})});
 renderAll();route(location.hash.slice(1)||'dashboard',{scroll:false});

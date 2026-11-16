@@ -49,7 +49,8 @@ The dashboard is designed to get you to the credits, not to start more games:
 - **Unfinished business** lists every game you've started but not beaten, closest to the end first.
 - Stats track games beaten (and how many this year), your finish rate, and how many games are in progress. More than three in progress gets a gentle warning.
 - Beating a game shows a celebration with your running total and how long it took, then suggests your next focus: the next game in that series, or something unfinished.
-- **Recommendations** are framed as what to play when you finish. They lead with the next game in a series you've beaten, followed by the top Series Quest gaps.
+- **Your checkpoint** (📍) answers "where am I, what next?" for each game: a location (chapter, area, level, mission), your current objective, and a short next-step checklist you can reorder, tick off, and mark as spoilers. Now Playing shows it at a glance, and you can tick steps right there. **Update checkpoint** opens a quick editor; the same editor is in the game window and beside the guide. The progress summary is "done of total" over your own checkpoints. Checkpoint never invents objectives or percentages, and the progress slider stays your own estimate (it can offer to match your checkpoints).
+- **Recommendations** are local and explain themselves. In *Finish first* mode (the default) they lead with games you've started (on hold, other games in progress, backlog games with logged progress) and add only one game for after you finish. *Explore* mode also suggests new starts. The kinds of suggestion are: keep going, next owned game in a series, the first game of a series you own several of, something different on a system you play (game 1 of a series when there is one, otherwise a labelled daily random pick), and a Series Quest gap to collect. Beaten games and anything marked **Not for me** are never suggested. **Tune suggestions** sets the mode and favored systems, turns off collection suggestions, and lists hidden games so you can undo. Checkpoint doesn't know genres, length or reviews, so it doesn't claim to.
 - A **trophy shelf** shows every game you've beaten.
 
 ## Guides and walkthroughs
@@ -57,11 +58,28 @@ The dashboard is designed to get you to the credits, not to start more games:
 Every game has an **Open walkthrough** button: in the game window, on the dashboard spotlight, and on library cards (hover, or always visible on touch screens). Guides come from [StrategyWiki](https://strategywiki.org), a free walkthrough wiki whose API allows other sites to load its pages, so they open inside Checkpoint instead of a new tab:
 
 - Checkpoint finds the matching guide automatically (using the matched box-art title when available). If unsure, it asks you to pick and remembers your choice.
-- Chapters are listed in the guide's own order, with previous/next buttons and adjustable text size.
-- Your notes for the game sit beside the guide and save automatically.
-- Checkpoint remembers your chapter and scroll position, so **Open walkthrough** picks up where you left off.
+- Chapters are listed in the guide's own order, numbered, with a filter for long guides, previous/next buttons, and `[` / `]` keyboard shortcuts. On phones a bottom bar has previous, the current chapter (tap for the list), next, and your checkpoint.
+- Your checkpoint and notes sit beside the guide (or slide over it on smaller screens) and save automatically. You can set the current chapter as your location in one tap, or add the guide's chapter names as checkpoints (optionally hidden as spoilers). Chapters you've ticked off show ✓ in the chapter list.
+- Checkpoint remembers your chapter and scroll position, so **Resume guide** picks up where you left off. **📍 Mark spot** saves an exact place; read ahead, then **↩ My spot** takes you back.
+- Every page is labelled with its source (StrategyWiki, a community wiki, CC BY-SA). Checkpoint never writes or summarizes guide content.
+- When there's no StrategyWiki guide, or it can't be reached, the reader offers a search, other sources, **your own guide links** (saved per game), and **Use my own checkpoints** to track the game without a built-in guide.
 
 GameFAQs, YouTube and web search are still linked as extra sources. Those sites block being shown inside other sites, so they open in a new tab.
+
+## Stored data
+
+Everything stays in this browser's `localStorage` and is included in **Export backup** (backup format v2; v1 backups still restore and leave newer data untouched):
+
+| Key | Contents |
+| --- | --- |
+| `checkpoint.library.v1` | Imported games |
+| `checkpoint.progress.v1` | Status, progress %, notes |
+| `checkpoint.guides.v1` | Chosen guide, chapter, scroll position, marked spot, chapter names |
+| `checkpoint.play.v1` | Location, objective, next steps, your guide links |
+| `checkpoint.prefs.v1` | Suggestion mode, favored systems, "Not for me" list, spoiler setting |
+| `checkpoint.seriesmarks.v1` | Series Quest hunt / have / skip marks |
+
+`checkpoint.schema` records the data version (currently 2). On first load after upgrading, the new stores are created and validated. Existing keys are left as they are.
 
 ## Series Quest
 

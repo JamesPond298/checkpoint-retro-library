@@ -60,7 +60,7 @@
           </section>
 
           <section class="shelf-section" id="forYouSection">
-            <div class="section-heading"><div><p class="eyebrow">PICKED FOR YOU</p><h2 id="forYouHeading">Recommended for you</h2></div><button class="text-button" data-route="recommendations">All Series Quest gaps →</button></div>
+            <div class="section-heading"><div><p class="eyebrow">PICKED FOR YOU</p><h2 id="forYouHeading">Recommended for you</h2><p class="for-you-mode muted small" id="forYouMode"></p></div><div class="section-links"><button class="button ghost small" id="recTuneButton">Tune suggestions</button><button class="text-button" data-route="recommendations">All Series Quest gaps →</button></div></div>
             <div class="for-you" id="forYou"></div>
           </section>
 
@@ -165,11 +165,18 @@
           <label><input type="radio" name="dialogStatus" value="on-hold"><span>On hold</span></label>
           <label><input type="radio" name="dialogStatus" value="beaten"><span>Beaten</span></label>
         </fieldset>
+        <section class="dialog-play" aria-labelledby="dialogPlayHeading">
+          <div class="dialog-play-head"><h3 id="dialogPlayHeading">Your checkpoint</h3><span class="muted small">Saves as you type</span></div>
+          <div id="dialogPlay"></div>
+        </section>
         <label class="field">Progress <output id="progressOutput">0%</output><input id="dialogProgress" type="range" min="0" max="100" step="5" value="0"></label>
-        <label class="field">Where did you stop?<textarea id="dialogNotes" rows="4" placeholder="Write a reminder for your future self…"></textarea></label>
+        <p class="progress-hint hidden" id="progressHint"></p>
+        <label class="field">Notes<textarea id="dialogNotes" rows="3" placeholder="Codes, item locations, reminders for future you…"></textarea></label>
+        <p class="muted small hidden" id="dialogNotForMe"></p>
         <div class="dialog-series hidden" id="dialogSeries"></div>
         <div class="guide-block">
-          <button type="button" class="button guide-button" id="openGuideButton"><span aria-hidden="true">📖</span> Open walkthrough<small id="guideResume"></small></button>
+          <button type="button" class="button guide-button" id="openGuideButton"><span aria-hidden="true">📖</span> <span id="guideButtonLabel">Open walkthrough</span><small id="guideResume"></small></button>
+          <div class="guide-links" id="dialogUserLinks"></div>
           <div class="guide-links">
             <span class="muted small">Other sources (new tab)</span>
             <a class="chip-link" id="gamefaqsLink" href="#" target="_blank" rel="noopener">GameFAQs ↗</a>
@@ -211,36 +218,99 @@
   </dialog>
 
   <!-- GUIDE READER -->
-  <dialog id="guideReader" class="reader" aria-label="Guide reader">
+  <dialog id="guideReader" class="reader" aria-labelledby="readerGame readerTitle">
     <div class="reader-shell">
       <header class="reader-head">
-        <button class="icon-button reader-toc-toggle" id="readerTocToggle" aria-label="Chapters">☰</button>
-        <div class="reader-titles"><p class="eyebrow" id="readerGame"></p><h2 id="readerTitle"></h2></div>
+        <button class="icon-button reader-toc-toggle" id="readerTocToggle" aria-label="Chapters" aria-controls="readerToc" aria-expanded="false">☰</button>
+        <div class="reader-titles"><p class="eyebrow" id="readerGame"></p><h2 id="readerTitle"></h2><p class="reader-source-tag" id="readerSourceTag"></p></div>
         <div class="reader-tools">
+          <button class="button ghost small reader-spot hidden" id="readerJumpSpot">↩<span class="lbl"> My spot</span></button>
+          <button class="button ghost small hidden" id="readerMarkSpot" title="Remember this exact place in the guide">📍<span class="lbl"> Mark spot</span></button>
           <button class="icon-button" id="readerSmaller" aria-label="Smaller text" title="Smaller text">A−</button>
           <button class="icon-button" id="readerBigger" aria-label="Larger text" title="Larger text">A+</button>
-          <button class="button ghost small" id="readerNotesToggle" title="Show or hide your notes">Notes</button>
+          <button class="button ghost small reader-notes-toggle" id="readerNotesToggle" aria-controls="readerNotes" aria-expanded="true" title="Show or hide your checkpoint and notes">My checkpoint</button>
           <button class="button ghost small" id="readerChange">Change guide</button>
-          <a class="button ghost small reader-source" id="readerSource" href="https://strategywiki.org" target="_blank" rel="noopener">StrategyWiki ↗</a>
+          <a class="button ghost small reader-source hidden" id="readerSource" href="https://strategywiki.org" target="_blank" rel="noopener">StrategyWiki ↗</a>
           <button class="icon-button" id="readerClose" aria-label="Close guide">×</button>
         </div>
       </header>
       <div class="reader-body">
-        <nav class="reader-toc" id="readerToc" aria-label="Chapters"></nav>
-        <article class="reader-content" id="readerContent" tabindex="0"></article>
-        <aside class="reader-notes">
-          <h3>Your notes</h3>
-          <textarea id="readerNotesText" placeholder="Where you are, what to do next, codes, item locations…"></textarea>
-          <p class="muted small">Saved automatically with this game.</p>
+        <nav class="reader-toc" id="readerToc" aria-label="Chapters">
+          <div id="readerTocTools" class="hidden">
+            <p class="reader-toc-head">Chapters <b id="readerTocCount"></b></p>
+            <label class="search toc-filter" id="readerTocFilterWrap"><span aria-hidden="true">⌕</span><input id="readerTocFilter" type="search" placeholder="Find a chapter…" aria-label="Find a chapter" autocomplete="off"></label>
+            <p class="toc-keys muted small">Tip: press <kbd>[</kbd> and <kbd>]</kbd> for previous / next chapter.</p>
+          </div>
+          <ol class="toc-list" id="readerTocList"></ol>
+        </nav>
+        <article class="reader-content" id="readerContent" tabindex="0" aria-label="Guide text"></article>
+        <aside class="reader-notes" id="readerNotes" aria-labelledby="readerNotesHeading">
+          <div class="reader-notes-head"><h3 id="readerNotesHeading">Your checkpoint</h3><button class="icon-button reader-notes-close" id="readerNotesClose" aria-label="Hide your checkpoint panel">×</button></div>
+          <div id="readerPlay"></div>
+          <div id="readerChapterAction" class="reader-chapter-action"></div>
+          <label class="reader-side-label" for="readerNotesText">Notes</label>
+          <textarea id="readerNotesText" placeholder="Codes, item locations, reminders…"></textarea>
+          <p class="muted small">Notes are shared with the game window and save automatically.</p>
+          <div class="reader-links" id="readerLinks"></div>
           <div class="reader-fallback" id="readerFallback"></div>
         </aside>
       </div>
+      <nav class="reader-dock" aria-label="Chapter navigation">
+        <button class="icon-button" id="dockPrev" aria-label="Previous chapter">←</button>
+        <button class="dock-chapter" id="dockChapters" aria-controls="readerToc" aria-expanded="false" aria-label="Show chapter list"><small id="dockCount"></small><b id="dockName"></b></button>
+        <button class="icon-button" id="dockNext" aria-label="Next chapter">→</button>
+        <button class="icon-button" id="dockNotes" aria-controls="readerNotes" aria-expanded="false" aria-label="Your checkpoint and notes">📍</button>
+      </nav>
+      <p class="reader-status" id="readerStatus" role="status" aria-live="polite"></p>
+    </div>
+  </dialog>
+
+  <!-- QUICK CHECKPOINT UPDATE -->
+  <dialog id="checkpointDialog" class="small-dialog" aria-labelledby="checkpointTitle">
+    <div class="dialog-card checkpoint-card">
+      <div class="checkpoint-head">
+        <div><p class="eyebrow">WHERE AM I?</p><h2 id="checkpointTitle"></h2></div>
+        <button type="button" class="dialog-close static" id="checkpointClose" aria-label="Close">×</button>
+      </div>
+      <div id="checkpointEditor"></div>
+      <div class="checkpoint-actions">
+        <button type="button" class="button ghost" id="checkpointGuide">📖 Open guide</button>
+        <button type="button" class="button ghost" id="checkpointDetails">Details &amp; progress</button>
+        <button type="button" class="button primary" id="checkpointDone">Done</button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- RECOMMENDATION PREFERENCES -->
+  <dialog id="recPrefsDialog" class="small-dialog" aria-labelledby="recPrefsTitle">
+    <div class="dialog-card prefs-card">
+      <div class="checkpoint-head">
+        <div><p class="eyebrow">PICKED FOR YOU</p><h2 id="recPrefsTitle">Tune your suggestions</h2></div>
+        <button type="button" class="dialog-close static" id="recPrefsClose" aria-label="Close">×</button>
+      </div>
+      <fieldset class="prefs-group">
+        <legend>What should suggestions focus on?</legend>
+        <label class="prefs-option"><input type="radio" name="recMode" value="focus"><span><b>Finish first</b><small>While you have unfinished games, suggest picking those back up, plus one game for when you're done.</small></span></label>
+        <label class="prefs-option"><input type="radio" name="recMode" value="explore"><span><b>Explore</b><small>Also suggest new games to start, even with others unfinished.</small></span></label>
+      </fieldset>
+      <fieldset class="prefs-group">
+        <legend>Systems you'd like to play more <span class="muted small">(optional)</span></legend>
+        <div class="prefs-systems" id="recPrefsSystems"></div>
+      </fieldset>
+      <label class="prefs-check"><input type="checkbox" id="recPrefsGaps"> Don't suggest games I'd have to go and get (Series Quest gaps)</label>
+      <label class="prefs-check"><input type="checkbox" id="recPrefsSpoilers"> Hide steps marked as spoilers until I reveal them</label>
+      <div class="prefs-group">
+        <p class="prefs-legend">Marked “Not for me”</p>
+        <div id="recPrefsHidden"></div>
+      </div>
+      <p class="muted small">Suggestions use only what's in this browser: your statuses, progress, series order, systems and these settings. Checkpoint doesn't know genres, game length or reviews.</p>
     </div>
   </dialog>
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
   <script src="art.js"></script>
   <script src="series-data.js"></script>
+  <script src="play.js"></script>
   <script src="guide.js"></script>
   <script src="app.js"></script>
 </body>
