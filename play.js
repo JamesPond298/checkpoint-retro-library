@@ -15,7 +15,7 @@
   const KEY = "checkpoint.play.v1";
   const PREFS_KEY = "checkpoint.prefs.v1";
   const SCHEMA_KEY = "checkpoint.schema";
-  const SCHEMA_VERSION = 2;
+  const SCHEMA_VERSION = 3;
   const LIMITS = { text: 240, location: 120, objective: 240, steps: 80, links: 12, label: 80 };
 
   const readJSON = (k, f) => { try { return JSON.parse(localStorage.getItem(k)) ?? f; } catch { return f; } };
@@ -75,7 +75,8 @@
     const notForMe = {};
     if (p.notForMe && typeof p.notForMe === "object") for (const [id, at] of Object.entries(p.notForMe)) notForMe[id] = isoOrNull(at) || new Date().toISOString();
     return {
-      mode: p.mode === "explore" ? "explore" : "focus",
+      mode: ["explore", "classic", "franchise", "system"].includes(p.mode) ? p.mode : "focus",
+      focusSystem: typeof p.focusSystem === "string" && p.focusSystem.length < 40 ? p.focusSystem : "",
       systems: Array.isArray(p.systems) ? [...new Set(p.systems.filter((s) => typeof s === "string" && s.length < 40))].slice(0, 40) : [],
       hideGaps: Boolean(p.hideGaps),
       hideSpoilers: p.hideSpoilers !== false,
@@ -86,6 +87,8 @@
   /* ---------- migration ----------
    * v1 (no schema key): progress + notes in checkpoint.progress.v1, guide position in checkpoint.guides.v1.
    * v2: adds checkpoint.play.v1 (checkpoints, links) and checkpoint.prefs.v1 (recommendation prefs).
+   * v3: adds checkpoint.collection.v1 (Discover want/have/skip/not-interested marks and collection
+   *     goals; created and validated by discover.js) and new suggestion modes in prefs.
    * Existing keys are left as they are; new stores are validated on every load so a damaged
    * or hand-edited value can't break the app. */
   let play = {}, prefs = {};

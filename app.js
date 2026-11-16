@@ -68,23 +68,24 @@ function showArt(el,urls,key){
 }
 
 /* ---------------- routing ---------------- */
-function route(name,{scroll=true}={}){if(!['dashboard','library','recommendations'].includes(name))name='dashboard';$$('.view').forEach(v=>v.classList.toggle('active',v.dataset.view===name));$$('.nav-button').forEach(b=>b.classList.toggle('active',b.dataset.route===name));if(location.hash!==`#${name}`)history.replaceState(null,'',`#${name}`);if(scroll)window.scrollTo({top:0,behavior:'smooth'});if(name==='library')renderLibrary();if(name==='recommendations'){renderRecommendations();warmSeriesArt()}}
+function route(name,{scroll=true}={}){if(!['dashboard','library','discover','recommendations'].includes(name))name='dashboard';$$('.view').forEach(v=>v.classList.toggle('active',v.dataset.view===name));$$('.nav-button').forEach(b=>b.classList.toggle('active',b.dataset.route===name));if(location.hash!==`#${name}`)history.replaceState(null,'',`#${name}`);if(scroll)window.scrollTo({top:0,behavior:'smooth'});if(name==='library')renderLibrary();if(name==='recommendations'){renderRecommendations();warmSeriesArt()}if(name==='discover'){renderDiscover();warmSeriesArt()}}
 
 /* ---------------- import / export ---------------- */
 function validateInventory(data){if(!data||data.format!=="checkpoint-inventory"||!Number.isInteger(data.version)||!Array.isArray(data.games))throw new Error("This is not a supported Checkpoint inventory file.");if(data.version!==1)throw new Error(`Inventory version ${data.version} is not supported yet.`);return data}
 function mergeInventory(data){validateInventory(data);const old=new Map(library.map(g=>[g.id,g]));let added=0;const now=new Date().toISOString();for(const raw of data.games){if(!raw.title||!raw.platform)continue;const fallback=`${raw.platform}:${norm(raw.normalizedTitle||raw.title)}`;let game={...raw,id:raw.id||fallback,normalizedTitle:raw.normalizedTitle||norm(raw.title),importedAt:now};if(old.has(game.id)){const prev=old.get(game.id);if(fileOf(prev)!==fileOf(game))CheckpointArt.forget(game.id);game={...prev,...game,importedAt:prev.importedAt||now}}else added++;old.set(game.id,game)}library=[...old.values()];libraryVisibleCount=LIBRARY_PAGE_SIZE;write(STORAGE.library,library);renderAll();toast(`${added} new game${added===1?'':'s'} added • ${library.length} total`);route('dashboard')}
 async function importFile(file){try{mergeInventory(JSON.parse(await file.text()))}catch(error){toast(error.message)}}
 /* Backup v2 adds guide positions (guides), checkpoints and your guide links (play), and
-   suggestion preferences (prefs). v1 backups still restore; parts they don't contain are left as they are. */
-const BACKUP_VERSION=2;
-function exportBackup(){const pd=CheckpointPlay.exportAll();const blob=new Blob([JSON.stringify({format:'checkpoint-backup',version:BACKUP_VERSION,exportedAt:new Date().toISOString(),library,progress,dismissed,marks,art:CheckpointArt.exportOverrides(),guides:CheckpointGuide.exportStore(),play:pd.play,prefs:pd.prefs},null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='checkpoint-backup.json';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);toast('Backup downloaded')}
+   suggestion preferences (prefs). v3 adds Discover marks and collection goals (collection).
+   Older backups still restore; parts they don't contain are left as they are. */
+const BACKUP_VERSION=3;
+function exportBackup(){const pd=CheckpointPlay.exportAll();const blob=new Blob([JSON.stringify({format:'checkpoint-backup',version:BACKUP_VERSION,exportedAt:new Date().toISOString(),library,progress,dismissed,marks,art:CheckpointArt.exportOverrides(),guides:CheckpointGuide.exportStore(),play:pd.play,prefs:pd.prefs,collection:exportCollection()},null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='checkpoint-backup.json';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);toast('Backup downloaded')}
 const isPlainObject=v=>Boolean(v)&&typeof v==='object'&&!Array.isArray(v);
 async function restoreBackup(file){try{const data=JSON.parse(await file.text());if(data?.format!=='checkpoint-backup'||!Array.isArray(data.library))throw new Error('This is not a Checkpoint backup file.');if(Number(data.version)>BACKUP_VERSION)throw new Error(`This backup is from a newer version of Checkpoint (v${data.version}). Reload the page and try again.`);
   const games=data.library.filter(g=>isPlainObject(g)&&g.id&&g.title&&g.platform);
   if(!confirm(`Replace this browser's library with the backup (${games.length} games)?`))return;
   library=games;progress=isPlainObject(data.progress)?data.progress:{};dismissed=Array.isArray(data.dismissed)?data.dismissed:[];marks=isPlainObject(data.marks)?data.marks:marks;write(MARKS_KEY,marks);CheckpointArt.importOverrides(data.art);
-  CheckpointGuide.importStore(isPlainObject(data.guides)?data.guides:undefined);CheckpointPlay.importAll({play:isPlainObject(data.play)?data.play:undefined,prefs:isPlainObject(data.prefs)?data.prefs:undefined});
-  write(STORAGE.library,library);write(STORAGE.progress,progress);write(STORAGE.dismissed,dismissed);loadedArt.clear();renderAll();toast(data.version>=2?'Backup restored':'Backup restored (older backup: existing checkpoints kept)');route('dashboard')}catch(error){toast(error instanceof SyntaxError?'That file isn\'t valid JSON.':error.message)}}
+  CheckpointGuide.importStore(isPlainObject(data.guides)?data.guides:undefined);CheckpointPlay.importAll({play:isPlainObject(data.play)?data.play:undefined,prefs:isPlainObject(data.prefs)?data.prefs:undefined});importCollection(isPlainObject(data.collection)?data.collection:undefined);recPrefsCache=null;
+  write(STORAGE.library,library);write(STORAGE.progress,progress);write(STORAGE.dismissed,dismissed);loadedArt.clear();renderAll();toast(data.version>=3?'Backup restored':data.version>=2?'Backup restored (older backup: your Discover marks and goals were kept)':'Backup restored (older backup: existing checkpoints, marks and goals kept)');route('dashboard')}catch(error){toast(error instanceof SyntaxError?'That file isn\'t valid JSON.':error.message)}}
 function triggerImport(){$("#inventoryInput").click()}
 
 /* ---------------- series logic ---------------- */
@@ -98,10 +99,13 @@ function setMark(seriesName,entryTitle,value){const k=`${seriesName}::${entryTit
 const ARCADE_CODES=new Set(["ARCADE_CPS1","ARCADE_CPS2","ARCADE_CPS3","ARCADE_FBNEO","ARCADE_MAME","NEOGEO"]);
 const keyVariants=text=>CheckpointArt.seriesKeys(text);
 let entryCache=new Map(),gameKeyIndex=null,statusCache=new Map();
-function resetSeriesCache(){entryCache=new Map();gameKeyIndex=null;statusCache=new Map();membershipIndex=null}
+function resetSeriesCache(){entryCache=new Map();gameKeyIndex=null;statusCache=new Map();membershipIndex=null;resetDiscoverCache()}
 function entryAllowed(entry,platform){return!(entry.skip?.includes(platform))&&!(entry.only&&!entry.only.includes(platform))}
 function entryKeys(series,entry){const id=markKey(series,entry);if(!entryCache.has(id)){const generic=new Set(),byPlatform={};for(const alias of entry.aliases){const m=alias.match(/^([A-Z0-9_]+)\|(.*)$/);if(m)keyVariants(m[2]).forEach(k=>(byPlatform[m[1]]??=new Set).add(k));else keyVariants(alias).forEach(k=>generic.add(k))}for(const[p,[,name]]of Object.entries(seriesIndex[series.name]?.[entry.title]||{}))keyVariants(CheckpointArt.baseOf(name)).forEach(k=>(byPlatform[p]??=new Set).add(k));entryCache.set(id,{generic,byPlatform})}return entryCache.get(id)}
-function gameKeys(g){const stem=(g.files?.[0]?.filename||fileOf(g).split('/').pop()||'').replace(/(?:\.nkit)?\.[^.]+$/i,'');const keys=new Set([...keyVariants(g.title),...keyVariants(g.normalizedTitle),...keyVariants(stem)]);const ref=CheckpointArt.cached(g.id);if(ref){keyVariants(CheckpointArt.baseOf(ref.name)).forEach(k=>keys.add(k));if(ARCADE_CODES.has(g.platform))keyVariants(ref.name.split(' - ')[0]).forEach(k=>keys.add(k))}return keys}
+function gameKeys(g){const stem=(g.files?.[0]?.filename||fileOf(g).split('/').pop()||'').replace(/(?:\.nkit)?\.[^.]+$/i,'');const keys=new Set([...keyVariants(g.title),...keyVariants(g.normalizedTitle),...keyVariants(stem)]);const ref=CheckpointArt.cached(g.id);if(ref){keyVariants(CheckpointArt.baseOf(ref.name)).forEach(k=>keys.add(k));if(ARCADE_CODES.has(g.platform))keyVariants(ref.name.split(' - ')[0]).forEach(k=>keys.add(k))}
+  // Arcade sets are often named "Main Title _ Japanese Title" or "Title - Subtitle (set 1)".
+  if(ARCADE_CODES.has(g.platform))for(const part of [g.title.split(' _ ')[0],g.title.split(' - ')[0]])if(part&&part!==g.title)keyVariants(part).forEach(k=>keys.add(k));
+  return keys}
 function buildGameKeyIndex(){gameKeyIndex=new Map();for(const g of library)for(const k of gameKeys(g)){if(!gameKeyIndex.has(k))gameKeyIndex.set(k,[]);gameKeyIndex.get(k).push(g)}}
 const STATUS_RANK={playing:3,beaten:2,'on-hold':1,backlog:0};
 function entryGames(entry,series){if(!gameKeyIndex)buildGameKeyIndex();const{generic,byPlatform}=entryKeys(series,entry),found=new Set();for(const k of generic)for(const g of gameKeyIndex.get(k)||[])if(series.systems.includes(g.platform)&&entryAllowed(entry,g.platform))found.add(g);for(const[p,keys]of Object.entries(byPlatform))for(const k of keys)for(const g of gameKeyIndex.get(k)||[])if(g.platform===p&&series.systems.includes(p)&&entryAllowed(entry,p))found.add(g);return[...found].sort((a,b)=>STATUS_RANK[stateFor(b.id).status]-STATUS_RANK[stateFor(a.id).status])}
@@ -119,7 +123,7 @@ const libraryPlatforms=()=>new Set(library.map(g=>g.platform));
 function entryArt(series,entry,prefer){const hits=seriesIndex[series.name]?.[entry.title]||{},mine=libraryPlatforms(),p=Object.keys(hits).sort((a,b)=>(b===prefer)-(a===prefer)||mine.has(b)-mine.has(a))[0];return p?{platform:p,system:hits[p][0],name:hits[p][1]}:{platform:series.systems[0]}}
 function seriesStatus(series){
   if(statusCache.has(series.name))return statusCache.get(series.name);
-  const entries=series.entries.map((entry,index)=>{const game=ownedGame(entry,series),mark=marks[markKey(series,entry)]||null;return{entry,index,game,mark,collected:Boolean(game)||mark==='have',skipped:!game&&mark==='skip',wanted:!game&&mark==='want'}});
+  const entries=series.entries.map((entry,index)=>{const game=ownedGame(entry,series),mark=marks[markKey(series,entry)]||null;return{entry,index,game,mark,collected:Boolean(game)||mark==='have',skipped:!game&&(mark==='skip'||mark==='no'),wanted:!game&&mark==='want'}});
   const collected=entries.filter(e=>e.collected),skipped=entries.filter(e=>e.skipped),total=entries.length-skipped.length,missing=entries.filter(e=>!e.collected&&!e.skipped);
   const status={entries,owned:entries.filter(e=>e.game).map(e=>e.game),collected:collected.length,skipped:skipped.length,total,missing,percent:total?Math.round(collected.length/total*100):100,started:collected.length>0,highest:Math.max(-1,...collected.map(e=>e.index))};
   statusCache.set(series.name,status);return status;
@@ -219,30 +223,58 @@ function systemPick(used,out){
   }
   return null;
 }
+/* The system "Build a system's collection" works on: the one you chose, else a favored
+   system, else the one you've played most, else the one you own most games for. */
+function systemFocus(){const p=recPrefs(),mine=libraryPlatforms();if(mine.has(p.focusSystem))return p.focusSystem;const fav=p.systems.find(s=>mine.has(s));if(fav)return fav;
+  const score=new Map(),owned=new Map();for(const g of library){owned.set(g.platform,(owned.get(g.platform)||0)+1);const s=stateFor(g.id).status;if(s!=='backlog')score.set(g.platform,(score.get(g.platform)||0)+(s==='beaten'?2:1))}
+  return[...mine].sort((a,b)=>(score.get(b)||0)-(score.get(a)||0)||(owned.get(b)||0)-(owned.get(a)||0))[0]||null}
+const sysListName=p=>{const l=discoverLists().find(x=>x.kind==='system'&&expandPlatforms(x.platforms).includes(p)&&x.platforms[0]!=='ARCADE');return l?l.title:`${shortPlatform(p)} essentials`};
+/* Modes ("what should suggestions focus on?"):
+   focus     - finish what you started, plus one game for when you're done (default)
+   classic   - classics and system essentials you own but haven't started, plus a few to find
+   franchise - the next game in series you've played, and the next entries to collect
+   system    - one system's essentials: owned ones to play, missing ones to find
+   explore   - a mix that includes new starts even with games unfinished
+   Every mode: never beaten games, never "Not for me" / "Not interested", fewer picks from series
+   you've turned down twice, at most six cards, spread across systems where possible. */
 function buildRecommendations(focusId){
-  const prefs=recPrefs(),explore=prefs.mode==='explore',preferred=new Set(prefs.systems),out=[],used=new Set(focusId?[focusId]:[]);
+  const prefs=recPrefs(),mode=prefs.mode,explore=mode==='explore',preferred=new Set(prefs.systems),out=[],used=new Set(focusId?[focusId]:[]);
   const ok=g=>g&&!used.has(g.id)&&!isNotForMe(g.id)&&stateFor(g.id).status!=='beaten';
   const push=item=>{used.add(item.game?item.game.id:item.key);out.push(item)};
-  const count=kind=>out.filter(o=>o.kind===kind).length,boost=p=>preferred.has(p)?15:0;
+  const count=kind=>out.filter(o=>o.kind===kind).length,boost=p=>preferred.has(p)?15:0,hiddenSeries=dismissedSeries();
+  const goalNote=key=>{const g=goalsContaining(key);return g.length?` Part of your goal “${g[0]}”.`:''};
+  const sys=mode==='system'?systemFocus():null;
   // 1. Finish what you started: other games you're playing first, then on hold, then backlog with progress.
   const started=unfinished().filter(ok).sort((a,b)=>STATUS_ORDER[stateFor(a.id).status]-STATUS_ORDER[stateFor(b.id).status]);
   const hasUnfinished=Boolean(focusId)||started.length>0;
-  started.slice(0,explore||focusId?1:2).forEach(g=>push({kind:'continue',game:g,label:stateFor(g.id).status==='on-hold'?'↺ Pick back up':'▶ Keep going',reason:continueReason(g)}));
-  // 2. The next game you own in a series you've played (or the first game of one you own several of).
-  const seriesSlots=explore?2:hasUnfinished?1:2,seenSeries=new Set();
-  for(const p of playNextPicks(used).filter(p=>ok(p.game)).sort((a,b)=>b.score+boost(b.game.platform)-a.score-boost(a.game.platform))){
-    if(count('series')>=seriesSlots)break;if(seenSeries.has(p.series.name))continue;seenSeries.add(p.series.name);
-    push({kind:'series',game:p.game,label:hasUnfinished&&!explore?'⏭ For when you finish':p.score>=80?'⏭ Next in the series':'▶ Start a series',reason:p.reason});
-  }
-  // 3. Something different on a system you play: only when exploring or nothing is unfinished.
-  if(explore||!hasUnfinished){const pick=systemPick(used,out);if(pick)push(pick)}
-  // 4. A missing series entry to track down (Series Quest), unless turned off.
-  if(!prefs.hideGaps){const gapSlots=explore?2:1,seenGap=new Set();
-    for(const r of [...recommendations()].sort((a,b)=>b.score+(b.playable.some(p=>preferred.has(p))?10:0)-a.score-(a.playable.some(p=>preferred.has(p))?10:0))){
-      if(count('gap')>=gapSlots)break;if(seenGap.has(r.series.name))continue;seenGap.add(r.series.name);
-      push({kind:'gap',key:r.key,gap:r,label:'＋ Add to your collection',reason:`${r.reason} (${r.series.name}).`});
-    }}
-  return{items:out.slice(0,6),hasUnfinished,explore};
+  const contPool=mode==='system'?started.filter(g=>g.platform===sys):mode==='franchise'?[...started].sort((a,b)=>(seriesOf(b.id).length>0)-(seriesOf(a.id).length>0)):started;
+  contPool.slice(0,mode==='focus'&&!focusId?2:1).forEach(g=>push({kind:'continue',game:g,label:stateFor(g.id).status==='on-hold'?'↺ Pick back up':'▶ Keep going',reason:continueReason(g)}));
+  // Next game you own in a series you've played (or the first game of one you own several of).
+  const addSeries=(slots,platform)=>{const seen=new Set();
+    for(const p of playNextPicks(used).filter(p=>ok(p.game)&&!hiddenSeries.has(p.series.name)&&(!platform||p.game.platform===platform)).sort((a,b)=>b.score+boost(b.game.platform)-a.score-boost(a.game.platform))){
+      if(count('series')>=slots)break;if(seen.has(p.series.name))continue;seen.add(p.series.name);
+      push({kind:'series',game:p.game,label:mode==='focus'&&hasUnfinished?'⏭ For when you finish':p.score>=80?'⏭ Next in the series':'▶ Start a series',reason:p.reason});
+    }};
+  // Curated picks you own and haven't started (Discover lists), spread across systems.
+  const addClassics=(slots,platform)=>{const pool=ownedEssentials({platform,exclude:used}).filter(s=>ok(s.game)),taken=new Set(out.map(o=>o.game?.platform).filter(Boolean));
+    for(const pass of [0,1])for(const s of pool){if(count('classic')>=slots)return;if(used.has(s.game.id)||(pass===0&&taken.has(s.game.platform)))continue;taken.add(s.game.platform);
+      push({kind:'classic',game:s.game,label:s.it.list.kind==='classics'?'★ A classic you own':`★ ${shortPlatform(s.game.platform)} essential you own`,reason:`${s.it.list.title}: ${s.why} You have it but haven't started it.${goalNote(s.key)}`})}};
+  // Curated picks you don't have yet, on systems you own.
+  const addFinds=(slots,platform)=>{if(prefs.hideGaps)return;const seenList=new Set();
+    for(const{s,playable}of missingEssentials({platform})){if(count('find')>=slots)break;if(used.has(s.key)||(seenList.has(s.it.list.id)&&slots>1&&count('find')<slots-1&&!platform))continue;seenList.add(s.it.list.id);
+      push({kind:'find',key:s.key,s,label:'＋ Worth finding',reason:`${s.it.list.title}: ${s.why} Not in your library; released on ${playable.map(shortPlatform).join(', ')}, which you play.${goalNote(s.key)}`})}};
+  // A missing series entry to track down (Series Quest).
+  const addGaps=(slots)=>{if(prefs.hideGaps)return;const seen=new Set();
+    for(const r of [...recommendations()].filter(r=>!hiddenSeries.has(r.series.name)).sort((a,b)=>b.score+(b.playable.some(p=>preferred.has(p))?10:0)-a.score-(a.playable.some(p=>preferred.has(p))?10:0))){
+      if(count('gap')>=slots)break;if(seen.has(r.series.name)||used.has(r.key))continue;seen.add(r.series.name);
+      push({kind:'gap',key:r.key,gap:r,label:'＋ Add to your collection',reason:`${r.reason} (${r.series.name}).${goalNote(r.key)}`});
+    }};
+  if(mode==='classic'){addClassics(3);addFinds(2)}
+  else if(mode==='franchise'){addSeries(3);addGaps(2)}
+  else if(mode==='system'&&sys){addClassics(3,sys);addSeries(count('classic')<2?2:1,sys);addFinds(2,sys)}
+  else if(explore){addSeries(2);addClassics(1);const pick=systemPick(used,out);if(pick)push(pick);addGaps(1);addFinds(1)}
+  else{addSeries(hasUnfinished?1:2);if(!hasUnfinished){addClassics(1);const pick=systemPick(used,out);if(pick)push(pick)}addGaps(1)}
+  return{items:out.slice(0,6),hasUnfinished,explore,mode,sys};
 }
 function guideUrls(game){const q=`${game.title} ${displayPlatform(game.platform)}`;return{web:`https://www.google.com/search?q=${encodeURIComponent(q+' walkthrough guide')}`,faqs:`https://gamefaqs.gamespot.com/search?game=${encodeURIComponent(game.title)}`,video:`https://www.youtube.com/results?search_query=${encodeURIComponent(q+' walkthrough')}`}}
 function renderDashboard(){
@@ -263,7 +295,7 @@ function renderDashboard(){
   const counts=new Map();library.forEach(g=>counts.set(g.platform,(counts.get(g.platform)||0)+1));
   $("#systemCount").textContent=`${counts.size} detected`;
   $("#platformChips").innerHTML=[...counts].sort((a,b)=>b[1]-a[1]).map(([p,n])=>`<button class="platform-chip" data-platform-link="${escapeHtml(p)}" style="--family:${familyColor(p)}"><span class="sys-dot"></span>${escapeHtml(shortPlatform(p))}<b>${n.toLocaleString()}</b></button>`).join('');
-  renderForYou(game?.id||null);
+  renderForYou(game?.id||null);renderGoalsMini();
   const recent=[...library].map((g,i)=>[g,i]).sort((a,b)=>(b[0].importedAt||'').localeCompare(a[0].importedAt||'')||b[1]-a[1]).slice(0,16).map(x=>x[0]);
   $("#recentGames").innerHTML=recent.map(shelfGame).join('');
   hydrateArt($("#dashboardView"));
@@ -311,16 +343,18 @@ function celebrate(id){
   hydrateArt($("#celebrateDialog"));$("#celebrateDialog").showModal();
 }
 function renderForYou(focusId){
-  const{items,hasUnfinished,explore}=buildRecommendations(focusId),prefs=recPrefs();
+  const{items,hasUnfinished,explore,mode,sys}=buildRecommendations(focusId),prefs=recPrefs();
   const nfm=id=>`<button class="mini-button subtle" data-notforme="${escapeHtml(id)}" aria-label="Not for me: hide from suggestions">Not for me</button>`;
   const cards=items.map(r=>{
-    if(r.kind==='gap')return`<article class="for-you-card gap">${entryCover(r.gap.series,r.gap.entry,'fy')}<div class="fy-body"><p class="fy-kind">${r.label}</p><h3>${escapeHtml(r.gap.title)}</h3><p class="muted small">${escapeHtml(r.reason)}</p>${platformChips(r.gap.platforms)}<div class="fy-actions"><button class="mini-button" data-mark="want" data-series="${enc(r.gap.series.name)}" data-entry="${enc(r.gap.title)}">＋ Hunt</button><button class="mini-button subtle" data-mark="skip" data-series="${enc(r.gap.series.name)}" data-entry="${enc(r.gap.title)}">Not for me</button></div></div></article>`;
+    if(r.kind==='gap')return`<article class="for-you-card gap">${entryCover(r.gap.series,r.gap.entry,'fy')}<div class="fy-body"><p class="fy-kind">${r.label}</p><h3>${escapeHtml(r.gap.title)}</h3><p class="muted small">${escapeHtml(r.reason)}</p>${platformChips(r.gap.platforms)}<div class="fy-actions"><button class="mini-button" data-mark="want" data-series="${enc(r.gap.series.name)}" data-entry="${enc(r.gap.title)}">＋ Want</button><button class="mini-button subtle" data-mark="no" data-series="${enc(r.gap.series.name)}" data-entry="${enc(r.gap.title)}" aria-label="Not interested in ${escapeHtml(r.gap.title)}">Not interested</button></div></div></article>`;
+    if(r.kind==='find')return`<article class="for-you-card gap find">${discCover(r.s,'fy')}<div class="fy-body"><p class="fy-kind">${r.label}</p><h3>${escapeHtml(r.s.title)}</h3><p class="muted small">${escapeHtml(r.reason)}</p>${r.s.region?`<p class="disc-note small">${escapeHtml(r.s.region)}</p>`:''}<div class="fy-actions"><button class="mini-button" data-dmark="want" data-dkey="${escapeHtml(r.s.uid)}">＋ Want</button><button class="mini-button subtle" data-dmark="no" data-dkey="${escapeHtml(r.s.uid)}" aria-label="Not interested in ${escapeHtml(r.s.title)}">Not interested</button></div></div></article>`;
     const id=escapeHtml(r.game.id),cont=r.kind==='continue';
     return`<article class="for-you-card own ${r.kind}">${cover(r.game,'fy')}<div class="fy-body"><p class="fy-kind">${escapeHtml(r.label)}</p><h3>${escapeHtml(r.game.title)}</h3><p class="fy-sys muted small"><span class="sys-dot" style="--family:${familyColor(r.game.platform)}"></span>${escapeHtml(shortPlatform(r.game.platform))}</p><p class="muted small">${escapeHtml(r.reason)}</p><div class="fy-actions">${cont?`<button class="mini-button on" data-track="${id}">${stateFor(r.game.id).status==='playing'?'Make focus':'Resume'}</button><button class="mini-button" data-checkpoint="${id}">📍 Where was I?</button>`:`<button class="mini-button on" data-track="${id}">Start playing</button><button class="mini-button" data-game="${id}">Details</button>`}${r.shuffle?`<button class="mini-button" data-shuffle aria-label="Shuffle: suggest a different random game">🎲 Shuffle</button>`:''}${nfm(r.game.id)}</div></div></article>`;
   });
-  $("#forYouHeading").textContent=hasUnfinished&&!explore?'Pick up where you left off':explore?'Ideas for what to play':'What to play next';
-  const sys=prefs.systems.map(shortPlatform);
-  $("#forYouMode").textContent=`${explore?'Explore: includes new games to start':'Finish first: games you started come first'}${sys.length?` · favoring ${sys.slice(0,3).join(', ')}${sys.length>3?` +${sys.length-3}`:''}`:''}`;
+  $("#forYouHeading").textContent={classic:'Classics to play next',franchise:'Continue a franchise',system:sys?`Building your ${shortPlatform(sys)} collection`:'Build a system’s collection',explore:'Ideas for what to play'}[mode]||(hasUnfinished?'Pick up where you left off':'What to play next');
+  const favs=prefs.systems.map(shortPlatform),hs=dismissedSeries().size;
+  $("#forYouMode").textContent=`${{classic:'Classics and essentials you own but haven’t started, then a few worth finding',franchise:'Next games in series you’ve played, then entries to collect',system:sys?`${sysListName(sys)}: ones you own to play, then ones to find. Change the system in Tune suggestions`:'Pick a system in Tune suggestions',explore:'Explore: includes new games to start',focus:'Finish first: games you started come first'}[mode]}${favs.length?` · favoring ${favs.slice(0,3).join(', ')}${favs.length>3?` +${favs.length-3}`:''}`:''}${hs?` · ${hs} series you turned down suggested less`:''}`;
+  if($("#forYouFocus").value!==mode)$("#forYouFocus").value=mode;
   const undo=lastHidden&&byId(lastHidden)&&isNotForMe(lastHidden)?`<p class="rec-undo" role="status">Hidden “${escapeHtml(byId(lastHidden).title)}” from suggestions. <button class="text-button small" data-undo-notforme="${escapeHtml(lastHidden)}">Undo</button></p>`:'';
   $("#forYouSection").classList.toggle('hidden',!cards.length&&!undo);
   $("#forYou").innerHTML=undo+(cards.join('')||'<p class="muted">Nothing to suggest right now. Change what suggestions focus on with <b>Tune suggestions</b>.</p>');
@@ -355,7 +389,7 @@ function renderPlatforms(){const current=$("#platformFilter").value;const system
 function entryCover(series,entry,cls,prefer){const a=entryArt(series,entry,prefer),key=a.name?`r:${a.system}|${a.name}`:null;return`<div class="cover ${cls}${key?knownAttrs(key):'" style="'}--cover:${COLORS[entry.title.length%COLORS.length]};--family:${familyColor(a.platform)}"${a.name?` data-art-system="${escapeHtml(a.system)}" data-art-name="${escapeHtml(a.name)}"`:''}>${coverInner(entry.title,a.platform,key)}</div>`}
 function platformChips(platforms){const mine=libraryPlatforms();return platforms.length?`<span class="plat-chips">${platforms.map(p=>`<span class="plat-chip${mine.has(p)?' mine':''}" title="${mine.has(p)?'You already have games for this system':displayPlatform(p)}">${escapeHtml(shortPlatform(p))}</span>`).join('')}</span>`:''}
 const enc=encodeURIComponent;
-function markButtons(series,entry,mark){const s=enc(series.name),t=enc(entry.title);if(mark==='have'||mark==='skip')return`<button class="mini-button" data-mark="" data-series="${s}" data-entry="${t}">Undo</button>`;return`<button class="mini-button${mark==='want'?' on':''}" data-mark="${mark==='want'?'':'want'}" data-series="${s}" data-entry="${t}" title="Add to your hunt list">${mark==='want'?'✓ Hunting':'＋ Hunt'}</button><button class="mini-button" data-mark="have" data-series="${s}" data-entry="${t}" title="You own or finished it outside this library">Have it</button><button class="mini-button subtle" data-mark="skip" data-series="${s}" data-entry="${t}" title="Not interested — exclude from this goal">Skip</button>`}
+function markButtons(series,entry,mark){const s=enc(series.name),t=enc(entry.title);if(mark==='have'||mark==='skip'||mark==='no')return`<button class="mini-button" data-mark="" data-series="${s}" data-entry="${t}">Undo${mark==='no'?' “not interested”':''}</button>`;return`<button class="mini-button${mark==='want'?' on':''}" data-mark="${mark==='want'?'':'want'}" data-series="${s}" data-entry="${t}" title="Add to your hunt list">${mark==='want'?'✓ Hunting':'＋ Hunt'}</button><button class="mini-button" data-mark="have" data-series="${s}" data-entry="${t}" title="You own or finished it outside this library">Have it</button><button class="mini-button subtle" data-mark="skip" data-series="${s}" data-entry="${t}" title="Not interested — exclude from this goal">Skip</button>`}
 function priceUrl(title,platforms){return`https://www.pricecharting.com/search-products?type=prices&q=${enc(title+(platforms[0]?' '+shortPlatform(platforms[0]):''))}`}
 function renderQuestStats(){const started=SERIES.filter(s=>seriesStatus(s).started),collected=started.reduce((a,s)=>a+seriesStatus(s).collected,0),total=started.reduce((a,s)=>a+seriesStatus(s).total,0),complete=started.filter(s=>!seriesStatus(s).missing.length).length;$("#questStats").innerHTML=[[`${started.length}<small>/${SERIES.length}</small>`,'Franchises started',`${complete} complete`],[`${collected}<small>/${total}</small>`,'Games collected','in started franchises'],[seriesGaps().length,'Gaps to fill','ranked below'],[huntList().length,'On your hunt list','games to track down']].map(([n,l,e])=>`<div class="stat"><span>${l}</span><strong>${n}</strong><em>${e}</em></div>`).join('')}
 function renderGoalDetail(){
@@ -364,7 +398,7 @@ function renderGoalDetail(){
   $("#goalSystem").textContent=series.systems.map(displayPlatform).join(' • ');$("#goalTitle").textContent=series.name;
   $("#goalSummary").textContent=!st.missing.length?'You have every game in this goal. Nicely done!':`${st.missing.length} game${st.missing.length===1?'':'s'} still to collect${st.skipped?` · ${st.skipped} skipped`:''}. Add the ones you want to your hunt list.`;
   $("#goalScore").innerHTML=`<strong>${st.collected}/${st.total}</strong><span>collected</span>`;$("#goalProgressBar").style.width=`${st.percent}%`;
-  $("#goalChecklist").innerHTML=st.entries.map(({entry,index,game,mark,collected,skipped})=>{const state=game?stateFor(game.id):null,platforms=entryPlatforms(series,entry);const meta=game?`${escapeHtml(displayPlatform(game.platform))} · ${STATUS_LABEL[state.status]}${state.percent?` · ${state.percent}%`:''}`:mark==='have'?'Marked as owned outside this library':skipped?'Skipped — not counted toward this goal':`${platforms.length?'Released on '+platformChips(platforms):'Not detected in your library'}`;return`<article class="goal-row ${game||mark==='have'?'owned':skipped?'skipped':'missing'}${mark==='want'?' wanted':''}">${game?cover(game,'mini'):entryCover(series,entry,'mini')}<div class="goal-text"><strong>${index+1}. ${escapeHtml(entry.title)}</strong><p>${meta}</p></div><div class="goal-actions">${game?`<button class="mini-button" data-game="${escapeHtml(game.id)}">Open</button>`:markButtons(series,entry,mark)}</div><span class="goal-check" aria-hidden="true">${game?(state.status==='beaten'?'★':'✓'):collected?'✓':skipped?'–':'○'}</span></article>`}).join('');
+  $("#goalChecklist").innerHTML=st.entries.map(({entry,index,game,mark,collected,skipped})=>{const state=game?stateFor(game.id):null,platforms=entryPlatforms(series,entry);const meta=game?`${escapeHtml(displayPlatform(game.platform))} · ${STATUS_LABEL[state.status]}${state.percent?` · ${state.percent}%`:''}`:mark==='have'?'Marked as owned outside this library':mark==='no'?'Not interested — not counted and never suggested':skipped?'Skipped — not counted toward this goal':`${platforms.length?'Released on '+platformChips(platforms):'Not detected in your library'}`;return`<article class="goal-row ${game||mark==='have'?'owned':skipped?'skipped':'missing'}${mark==='want'?' wanted':''}">${game?cover(game,'mini'):entryCover(series,entry,'mini')}<div class="goal-text"><strong>${index+1}. ${escapeHtml(entry.title)}</strong><p>${meta}</p></div><div class="goal-actions">${game?`<button class="mini-button" data-game="${escapeHtml(game.id)}">Open</button>`:markButtons(series,entry,mark)}</div><span class="goal-check" aria-hidden="true">${game?(state.status==='beaten'?'★':'✓'):collected?'✓':skipped?'–':'○'}</span></article>`}).join('');
   hydrateArt(detail);
 }
 /* One toolbar drives three views: gaps to fill, franchise goals and the hunt list.
@@ -374,7 +408,7 @@ let quest={tab:'gaps',system:'all',status:'all',sort:{},...read(QUEST_KEY,{}),li
 const saveQuest=()=>write(QUEST_KEY,{tab:quest.tab,system:quest.system,status:quest.status,sort:quest.sort});
 const QUEST_TABS=[['gaps','Gaps to fill'],['franchises','Franchises'],['hunt','Hunt list']];
 const QUEST_SORTS={gaps:[['best','Best next pick'],['franchise','Group by franchise'],['system','Group by system'],['closest','Closest to finishing'],['title','Title A–Z']],franchises:[['closest','Closest to complete'],['missing','Most missing'],['owned','Most collected'],['name','Name A–Z']],hunt:[['franchise','Group by franchise'],['system','Group by system'],['title','Title A–Z']]};
-const QUEST_HINTS={gaps:'Missing games from franchises you’ve started. The next game in line ranks first, then earlier entries you skipped.',franchises:'Every franchise Checkpoint tracks. Open one to see its full checklist.',hunt:'Games you’ve decided to collect. Rescan after adding them to your card and they’ll be checked off automatically.'};
+const QUEST_HINTS={gaps:'Missing games from franchises you’ve started. The next game in line ranks first, then earlier entries you skipped.',franchises:'Every franchise Checkpoint tracks. Open one to see its full checklist.',hunt:'Games you’ve decided to collect. Rescan after adding them to your card and they’ll be checked off automatically. Discover → Want list also shows games wanted from the classics and system lists.'};
 const SERIES_FILTERS=[['all','All'],['started','In progress'],['almost','Almost done'],['complete','Complete'],['new','Not started']];
 const STATUS_TESTS={all:()=>true,started:st=>st.started&&st.missing.length>0,almost:st=>st.started&&st.missing.length>0&&st.missing.length<=2,complete:st=>st.started&&!st.missing.length,new:st=>!st.started};
 const sortKey=()=>{const opts=QUEST_SORTS[quest.tab];return opts.some(o=>o[0]===quest.sort[quest.tab])?quest.sort[quest.tab]:opts[0][0]};
@@ -437,7 +471,7 @@ function renderRecommendations(){
 }
 const renderSeriesCatalog=renderRecommendations;
 function copyHuntList(){const text=huntList().map(h=>`☐ ${h.entry.title} — ${h.series.name}${h.platforms.length?` (${h.platforms.map(shortPlatform).join(', ')})`:''}`).join('\n');(navigator.clipboard?.writeText(text)||Promise.reject()).then(()=>toast('Hunt list copied')).catch(()=>{const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([text],{type:'text/plain'}));a.download='checkpoint-hunt-list.txt';a.click();toast('Hunt list downloaded')})}
-function renderAll(){resetSeriesCache();renderPlatforms();renderDashboard();renderLibrary();renderRecommendations()}
+function renderAll(){resetSeriesCache();renderPlatforms();renderDashboard();renderLibrary();renderRecommendations();renderDiscoverIfVisible()}
 
 /* ---------------- game dialog ---------------- */
 function openGame(id){
@@ -482,13 +516,13 @@ function afterArtChange(game,message){loadedArt.delete(`g:${game.id}`);renderDia
 
 /* ---------------- events ---------------- */
 document.addEventListener('click',e=>{
-  const routeBtn=e.target.closest('[data-route]');if(routeBtn){if(routeBtn.dataset.statusLink){libraryStatus=routeBtn.dataset.statusLink;libraryVisibleCount=LIBRARY_PAGE_SIZE}route(routeBtn.dataset.route);return}
+  const routeBtn=e.target.closest('[data-route]');if(routeBtn){if(routeBtn.dataset.statusLink){libraryStatus=routeBtn.dataset.statusLink;libraryVisibleCount=LIBRARY_PAGE_SIZE}if(routeBtn.dataset.discoverTab){ui().tab=routeBtn.dataset.discoverTab;saveUI()}route(routeBtn.dataset.route);return}
   const plat=e.target.closest('[data-platform-link]');if(plat){$("#platformFilter").value=plat.dataset.platformLink;libraryStatus='all';libraryVisibleCount=LIBRARY_PAGE_SIZE;route('library');return}
   const tab=e.target.closest('[data-status]');if(tab){libraryStatus=tab.dataset.status;libraryVisibleCount=LIBRARY_PAGE_SIZE;renderLibrary();return}
   const series=e.target.closest('[data-open-series]');if(series){activeSeriesName=decodeURIComponent(series.dataset.openSeries);renderSeriesCatalog();renderGoalDetail();$("#goalDetail").scrollIntoView({behavior:'smooth',block:'start'});return}
   const dsGame=e.target.closest('[data-ds-game]');if(dsGame){openGame(dsGame.dataset.dsGame);return}
   const dsList=e.target.closest('[data-ds-checklist]');if(dsList){$("#gameDialog").close();activeSeriesName=decodeURIComponent(dsList.dataset.dsChecklist);route('recommendations');return}
-  const mark=e.target.closest('[data-mark]');if(mark){const v=mark.dataset.mark,t=decodeURIComponent(mark.dataset.entry);setMark(decodeURIComponent(mark.dataset.series),t,v);if($("#gameDialog").open&&activeGameId)renderDialogSeries(byId(activeGameId));toast({want:`Added ${t} to your hunt list`,have:`Marked ${t} as collected`,skip:`Skipped ${t}`}[v]||'Updated');return}
+  const mark=e.target.closest('[data-mark]');if(mark){const v=mark.dataset.mark,t=decodeURIComponent(mark.dataset.entry);setMark(decodeURIComponent(mark.dataset.series),t,v);if($("#gameDialog").open&&activeGameId)renderDialogSeries(byId(activeGameId));toast({want:`Added ${t} to your hunt list`,have:`Marked ${t} as collected`,skip:`Skipped ${t}`,no:`Got it: ${t} won't be suggested`}[v]||'Updated');return}
   const sf=e.target.closest('[data-series-filter]');if(sf){quest.status=sf.dataset.seriesFilter;saveQuest();renderRecommendations();return}
   const qt=e.target.closest('[data-quest-tab]');if(qt){quest.tab=qt.dataset.questTab;quest.limit=40;saveQuest();renderRecommendations();return}
   const qs=e.target.closest('[data-quest-system]');if(qs){quest.system=qs.dataset.questSystem;quest.limit=40;saveQuest();renderRecommendations();return}
@@ -544,17 +578,20 @@ let playRenderTimer;
 document.addEventListener('checkpoint:play',e=>{const id=e.detail?.id;clearTimeout(playRenderTimer);
   playRenderTimer=setTimeout(()=>{renderDashboard();if(pendingFocus){const{gid,i}=pendingFocus;pendingFocus=null;const list=[...document.querySelectorAll(`[data-where-game="${CSS.escape(gid)}"]`)];(list[Math.min(i,list.length-1)]||$(`#spotlight [data-checkpoint]`))?.focus()}},pendingFocus?0:250);
   if(id&&id===activeGameId){renderProgressHint(id);renderDialogGuide(id)}});
-document.addEventListener('checkpoint:prefs',()=>{recPrefsCache=null;renderDashboard();if($("#recPrefsDialog").open)renderRecPrefs();if(activeGameId)renderNotForMe(activeGameId)});
+document.addEventListener('checkpoint:prefs',()=>{recPrefsCache=null;renderDashboard();renderDiscoverIfVisible();if($("#recPrefsDialog").open)renderRecPrefs();if(activeGameId)renderNotForMe(activeGameId)});
 window.addEventListener('checkpoint:storage-error',()=>toast('Could not save: browser storage is full or blocked'));
 
 /* recommendation preferences */
 function renderRecPrefs(){const p=recPrefs(),counts=new Map();library.forEach(g=>counts.set(g.platform,(counts.get(g.platform)||0)+1));
   $$('input[name="recMode"]').forEach(r=>r.checked=r.value===p.mode);$("#recPrefsGaps").checked=p.hideGaps;$("#recPrefsSpoilers").checked=p.hideSpoilers;
+  const cur=systemFocus();$("#recFocusSystemWrap").classList.toggle('hidden',p.mode!=='system');$("#recFocusSystem").innerHTML=[...counts].sort((a,b)=>b[1]-a[1]).map(([s,n])=>`<option value="${escapeHtml(s)}"${s===cur?' selected':''}>${escapeHtml(displayPlatform(s))} (${n.toLocaleString()})</option>`).join('');
+  const hs=[...dismissedSeries()];$("#recPrefsSeriesNote").textContent=hs.length?`You've turned down two or more games from ${hs.slice(0,4).join(', ')}${hs.length>4?` and ${hs.length-4} more`:''}, so Checkpoint suggests less from ${hs.length===1?'that series':'those series'}. Undo a “Not for me” or “Not interested” to change this.`:'';
   $("#recPrefsSystems").innerHTML=[...counts].sort((a,b)=>b[1]-a[1]).map(([s,n])=>`<button type="button" class="sys-chip${p.systems.includes(s)?' active':''}" data-pref-system="${escapeHtml(s)}" aria-pressed="${p.systems.includes(s)}" style="--family:${familyColor(s)}"><span class="sys-dot"></span>${escapeHtml(shortPlatform(s))}<b>${n.toLocaleString()}</b></button>`).join('')||'<p class="muted small">Import your library to pick systems.</p>';
   const hidden=Object.keys(p.notForMe).map(byId).filter(Boolean);
   $("#recPrefsHidden").innerHTML=hidden.length?`<ul class="prefs-hidden">${hidden.map(g=>`<li><span>${escapeHtml(g.title)} <small class="muted">${escapeHtml(shortPlatform(g.platform))}</small></span><button type="button" class="mini-button" data-undo-notforme="${escapeHtml(g.id)}">Show again</button></li>`).join('')}</ul>`:'<p class="muted small">Nothing hidden. Use “Not for me” on a suggestion to stop seeing it. Series Quest skips are managed in Series Quest.</p>'}
 $("#recTuneButton").onclick=()=>{renderRecPrefs();$("#recPrefsDialog").showModal()};
 $("#recPrefsClose").onclick=()=>$("#recPrefsDialog").close();
 $("#recPrefsDialog").addEventListener('click',e=>{if(e.target===e.currentTarget){e.currentTarget.close();return}const b=e.target.closest('[data-pref-system]');if(!b)return;const p=recPrefs(),s=b.dataset.prefSystem,systems=p.systems.includes(s)?p.systems.filter(x=>x!==s):[...p.systems,s];CheckpointPlay.setPrefs({systems});$(`#recPrefsSystems [data-pref-system="${CSS.escape(s)}"]`)?.focus()});
-$("#recPrefsDialog").addEventListener('change',e=>{if(e.target.name==='recMode')CheckpointPlay.setPrefs({mode:e.target.value});if(e.target.id==='recPrefsGaps')CheckpointPlay.setPrefs({hideGaps:e.target.checked});if(e.target.id==='recPrefsSpoilers')CheckpointPlay.setPrefs({hideSpoilers:e.target.checked})});
+$("#forYouFocus").onchange=e=>{CheckpointPlay.setPrefs({mode:e.target.value});toast(`Suggestions now: ${e.target.selectedOptions[0].textContent.toLowerCase()}`);$("#forYouFocus").focus()};
+$("#recPrefsDialog").addEventListener('change',e=>{if(e.target.id==='recFocusSystem')CheckpointPlay.setPrefs({focusSystem:e.target.value});if(e.target.name==='recMode')CheckpointPlay.setPrefs({mode:e.target.value});if(e.target.id==='recPrefsGaps')CheckpointPlay.setPrefs({hideGaps:e.target.checked});if(e.target.id==='recPrefsSpoilers')CheckpointPlay.setPrefs({hideSpoilers:e.target.checked})});
 renderAll();route(location.hash.slice(1)||'dashboard',{scroll:false});

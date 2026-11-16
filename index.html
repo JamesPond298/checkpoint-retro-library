@@ -22,6 +22,7 @@
       <nav aria-label="Main navigation">
         <button class="nav-button active" data-route="dashboard">Dashboard</button>
         <button class="nav-button" data-route="library">My Library</button>
+        <button class="nav-button" data-route="discover">Discover</button>
         <button class="nav-button" data-route="recommendations">Series Quest</button>
       </nav>
       <div class="top-actions">
@@ -60,10 +61,15 @@
           </section>
 
           <section class="shelf-section" id="forYouSection">
-            <div class="section-heading"><div><p class="eyebrow">PICKED FOR YOU</p><h2 id="forYouHeading">Recommended for you</h2><p class="for-you-mode muted small" id="forYouMode"></p></div><div class="section-links"><button class="button ghost small" id="recTuneButton">Tune suggestions</button><button class="text-button" data-route="recommendations">All Series Quest gaps →</button></div></div>
+            <div class="section-heading"><div><p class="eyebrow">PICKED FOR YOU</p><h2 id="forYouHeading">Recommended for you</h2><p class="for-you-mode muted small" id="forYouMode"></p></div><div class="section-links"><label class="for-you-focus"><span class="sr-only">Suggestions focus</span><select id="forYouFocus" aria-label="What should suggestions focus on?"><option value="focus">Help me finish a game</option><option value="classic">Recommend a classic</option><option value="franchise">Continue a franchise</option><option value="system">Build a system's collection</option><option value="explore">Explore something new</option></select></label><button class="button ghost small" id="recTuneButton">Tune suggestions</button><button class="text-button" data-route="discover">Discover more →</button></div></div>
             <div class="for-you" id="forYou"></div>
           </section>
 
+
+          <section class="panel goals-mini hidden" id="goalsMini">
+            <div class="panel-heading"><h3>Your collection goals</h3><button class="text-button small" data-route="discover" data-discover-tab="goals">All goals →</button></div>
+            <div class="goals-mini-list" id="goalsMiniList"></div>
+          </section>
 
           <section class="shelf-section" id="trophySection">
             <div class="section-heading"><div><p class="eyebrow">🏆 TROPHY SHELF</p><h2>Games you've beaten</h2></div><span class="pill" id="trophyCount"></span></div>
@@ -97,6 +103,25 @@
         <div id="libraryGrid" class="library-grid"></div>
         <div class="library-more"><button class="button ghost hidden" id="loadMoreButton">Show more games</button></div>
         <div id="libraryEmpty" class="empty-state"><div class="empty-icon">▣</div><h2>No games imported yet</h2><p>Use the JSON file created by Checkpoint Scanner.</p><button class="button primary" id="emptyImportButton">Choose inventory file</button></div>
+      </section>
+
+      <!-- DISCOVER -->
+      <section class="view" id="discoverView" data-view="discover">
+        <div class="page-heading"><div><p class="eyebrow">CHOOSE · COLLECT · FINISH</p><h1>Discover</h1><p>Beloved franchises, classics and essentials for each system, checked against your library. Set a goal, mark what you want, and see what to play or find next.</p></div></div>
+        <p class="disc-library-note hidden" id="discoverLibraryNote"><b>“In library”</b> means a matching file was found in your imported inventory. It doesn't confirm you own a physical copy. Use <b>Have it</b> for games you own or finished elsewhere. Lists are Checkpoint's curated picks, not rankings.</p>
+        <div class="stat-grid quest-stats" id="discoverStats"></div>
+        <div class="quest-bar">
+          <div class="quest-bar-top">
+            <div class="quest-tabs" id="discoverTabs" role="tablist" aria-label="Discover views"></div>
+            <div class="quest-controls">
+              <label class="search" id="discoverSearchWrap"><span aria-hidden="true">⌕</span><input id="discoverSearch" type="search" placeholder="Search games or franchises…" aria-label="Search Discover"></label>
+              <select id="discoverFilter" aria-label="Filter"></select>
+            </div>
+          </div>
+          <div class="system-chips hidden" id="discoverLists" aria-label="Choose a system list"></div>
+        </div>
+        <p class="quest-hint" id="discoverHint"></p>
+        <div id="discoverPanel" class="quest-panel" aria-live="polite"></div>
       </section>
 
       <!-- SERIES QUEST -->
@@ -291,27 +316,34 @@
       <fieldset class="prefs-group">
         <legend>What should suggestions focus on?</legend>
         <label class="prefs-option"><input type="radio" name="recMode" value="focus"><span><b>Finish first</b><small>While you have unfinished games, suggest picking those back up, plus one game for when you're done.</small></span></label>
+        <label class="prefs-option"><input type="radio" name="recMode" value="classic"><span><b>Recommend a classic</b><small>Classics and system essentials you own but haven't started, plus a few worth finding.</small></span></label>
+        <label class="prefs-option"><input type="radio" name="recMode" value="franchise"><span><b>Continue a franchise</b><small>The next game in series you've played, and the next entries to collect.</small></span></label>
+        <label class="prefs-option"><input type="radio" name="recMode" value="system"><span><b>Build a system's collection</b><small>Essentials for one system: the ones you own to play, and the ones to find.</small></span></label>
+        <label class="prefs-focus-system" id="recFocusSystemWrap">System <select id="recFocusSystem"></select></label>
         <label class="prefs-option"><input type="radio" name="recMode" value="explore"><span><b>Explore</b><small>Also suggest new games to start, even with others unfinished.</small></span></label>
       </fieldset>
       <fieldset class="prefs-group">
         <legend>Systems you'd like to play more <span class="muted small">(optional)</span></legend>
         <div class="prefs-systems" id="recPrefsSystems"></div>
       </fieldset>
-      <label class="prefs-check"><input type="checkbox" id="recPrefsGaps"> Don't suggest games I'd have to go and get (Series Quest gaps)</label>
+      <label class="prefs-check"><input type="checkbox" id="recPrefsGaps"> Don't suggest games I'd have to go and get (Series Quest gaps and Discover picks)</label>
       <label class="prefs-check"><input type="checkbox" id="recPrefsSpoilers"> Hide steps marked as spoilers until I reveal them</label>
       <div class="prefs-group">
         <p class="prefs-legend">Marked “Not for me”</p>
         <div id="recPrefsHidden"></div>
       </div>
-      <p class="muted small">Suggestions use only what's in this browser: your statuses, progress, series order, systems and these settings. Checkpoint doesn't know genres, game length or reviews.</p>
+      <p class="muted small" id="recPrefsSeriesNote"></p>
+      <p class="muted small">Suggestions use only what's in this browser: your statuses, progress, series order, systems, Discover lists, your marks and these settings. Checkpoint doesn't know genres, game length or reviews.</p>
     </div>
   </dialog>
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
   <script src="art.js"></script>
   <script src="series-data.js"></script>
+  <script src="discovery-data.js"></script>
   <script src="play.js"></script>
   <script src="guide.js"></script>
+  <script src="discover.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

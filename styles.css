@@ -784,3 +784,85 @@ kbd{font-family:var(--font);font-size:11px;border:1px solid var(--line-strong);b
 .ds-item.have em{color:var(--muted)}
 
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
+
+/* ================= Discover ================= */
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+.disc-library-note{margin:0 0 18px;padding:12px 16px;border-radius:12px;background:rgba(157,140,255,.08);border:1px solid rgba(157,140,255,.25);color:var(--muted);font-size:13.5px;line-height:1.5}
+.disc-library-note b{color:var(--text)}
+.disc-row{grid-template-columns:46px minmax(0,1fr) auto}
+.disc-row .qr-main strong{white-space:normal}
+.disc-row .disc-why{display:block;margin:3px 0 4px;color:var(--text);opacity:.85;font-size:13px;line-height:1.45}
+.disc-row .disc-meta{margin:2px 0 0}
+.disc-row.compact{padding:8px 12px 8px 8px}
+.disc-row.compact .cover.mini{width:36px}
+.disc-row.st-beaten{border-color:rgba(255,195,92,.35)}
+.disc-row.st-want{border-color:rgba(81,240,177,.3)}
+.disc-row.st-skip,.disc-row.st-no{opacity:.7}
+.disc-num{color:var(--faint);font-weight:700;font-variant-numeric:tabular-nums}
+.disc-star{font-size:11px;font-weight:700;color:var(--amber);margin-left:4px;white-space:nowrap}
+.disc-state{font-size:11px;font-weight:700;padding:2px 8px;border-radius:99px;background:rgba(255,255,255,.06);color:var(--muted);white-space:nowrap}
+.disc-state.owned,.disc-state.started{color:var(--violet);background:rgba(157,140,255,.12)}
+.disc-state.playing,.disc-state.on-hold{color:var(--mint);background:rgba(81,240,177,.1)}
+.disc-state.beaten{color:var(--amber);background:rgba(255,195,92,.12)}
+.disc-state.have,.disc-state.want{color:var(--mint);background:rgba(81,240,177,.08);border:1px solid rgba(81,240,177,.3)}
+.disc-state.skip,.disc-state.no{color:var(--faint)}
+.disc-note{font-size:11.5px;color:var(--amber)}
+.disc-source{font-size:11.5px;color:var(--faint);font-style:italic}
+.disc-list-head{display:flex;justify-content:space-between;gap:20px;align-items:flex-start;margin:6px 0 12px}
+.disc-list-head h2{margin:0 0 4px;font-family:var(--display);font-size:24px}
+.disc-list-head p{margin:0 0 4px}
+.disc-editorial{font-size:12.5px;color:var(--faint)}
+.disc-sum{margin:8px 0 10px}
+.disc-goal-actions{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 14px}
+.disc-goal-actions .mini-button[disabled]{cursor:default;opacity:.85}
+.disc-sub{margin:26px 0 10px;font-size:16px}
+.disc-franchises{display:grid;gap:12px}
+.disc-franchise{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);transition:border-color .15s}
+.disc-franchise.started{border-color:#2d3c5c}
+.disc-franchise[open]{border-color:var(--line-strong)}
+.disc-franchise summary{display:grid;grid-template-columns:auto minmax(0,1fr);gap:16px;align-items:center;padding:16px 18px;cursor:pointer;list-style:none}
+.disc-franchise summary::-webkit-details-marker{display:none}
+.disc-franchise summary:focus-visible{outline:2px solid var(--mint);outline-offset:-2px;border-radius:var(--radius)}
+.disc-franchise summary .series-stack{margin:0;width:96px}
+.df-head h3{margin:0 0 4px;font-size:17px}
+.df-head h3::after{content:" ▸";color:var(--faint);font-size:13px}
+.disc-franchise[open] .df-head h3::after{content:" ▾"}
+.df-why{margin:0 0 8px;color:var(--muted);font-size:13.5px;line-height:1.45}
+.df-head .progress-track{margin-bottom:6px}
+.df-head p.small{margin:0}
+.df-body{padding:0 18px 18px}
+.df-body > p{margin:0 0 10px}
+.df-body .disc-goal-actions{margin:14px 0 0}
+.goal-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,420px),1fr));gap:14px}
+.goal-card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:18px;display:flex;flex-direction:column;gap:8px}
+.goal-card.complete{border-color:rgba(255,195,92,.45);background:linear-gradient(150deg,rgba(255,195,92,.08),var(--surface) 55%)}
+.goal-card.suggestion{border-style:dashed}
+.goal-card h3{margin:0;font-size:17px}
+.goal-card .eyebrow{margin:0 0 4px}
+.goal-card > p{margin:0}
+.goal-card .quest-list{gap:6px}
+.goal-card .mini-button{align-self:flex-start}
+.gc-head{display:flex;justify-content:space-between;gap:14px;align-items:flex-start}
+.gc-next-label{color:var(--faint);font-weight:700;text-transform:uppercase;letter-spacing:.06em;font-size:11px!important;margin-top:4px!important}
+.gc-done{color:var(--amber);font-weight:700}
+.gc-actions{display:flex;justify-content:space-between;gap:10px;margin-top:4px}
+.goals-mini-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,260px),1fr));gap:10px}
+.goal-mini{display:grid;gap:8px;text-align:left;background:var(--surface-2);border:1px solid var(--line);border-radius:12px;padding:12px 14px;color:var(--text);cursor:pointer;font:inherit}
+.goal-mini:hover,.goal-mini:focus-visible{border-color:var(--mint)}
+.goal-mini b{display:block;font-size:14px}
+.goal-mini small{color:var(--muted);font-size:12.5px}
+.for-you-focus select{background:var(--surface-2);color:var(--text);border:1px solid var(--line-strong);border-radius:10px;padding:7px 10px;font:inherit;font-size:13px;max-width:100%}
+.prefs-focus-system{display:flex;gap:10px;align-items:center;margin:-2px 0 6px 30px;font-size:13.5px;color:var(--muted)}
+.prefs-focus-system select{flex:1;min-width:0;background:var(--surface-2);color:var(--text);border:1px solid var(--line-strong);border-radius:8px;padding:6px 8px;font:inherit;font-size:13px}
+.for-you-card.find .fy-kind{color:var(--violet)}
+@media (max-width:640px){
+  .disc-row{grid-template-columns:40px minmax(0,1fr)}
+  .disc-list-head{flex-direction:column;gap:8px}
+  .disc-franchise summary{grid-template-columns:1fr;gap:10px;padding:14px}
+  .disc-franchise summary .series-stack{display:none}
+  .df-body{padding:0 12px 14px}
+  .gc-head{flex-direction:column}
+  .prefs-focus-system{margin-left:0}
+}
+#discoverPanel{padding:0 var(--gutter) 28px}#discoverPanel .quest-list{margin:0}.disc-library-note{margin:0 var(--gutter) 18px}
+.nav-button{white-space:nowrap}
